@@ -8,6 +8,7 @@ import type {
 import {
 	formatAccountRateLimitStatus,
 	formatAccountSessionInfo,
+	formatUtilizationPercent,
 } from "./account-display";
 import { formatDuration, formatPercentage, formatTokens } from "./formatters";
 
@@ -33,6 +34,14 @@ export interface AccountResponseLike {
 	};
 	rateLimitReset: string | null;
 	rateLimitRemaining: number | null;
+	// Optional so callers passing a partial/older shape still satisfy the type.
+	utilization5h?: number | null;
+	reset5h?: string | null;
+	status5h?: string | null;
+	utilization7d?: number | null;
+	reset7d?: string | null;
+	status7d?: string | null;
+	overageStatus?: string | null;
 	sessionInfo: {
 		active: boolean;
 		startedAt: string | null;
@@ -81,6 +90,14 @@ export class AccountPresenter {
 
 	get isRateLimited(): boolean {
 		return this.account.rateLimitStatus.isLimited;
+	}
+
+	get utilization5hDisplay(): string {
+		return formatUtilizationPercent(this.account.utilization5h ?? null);
+	}
+
+	get utilization7dDisplay(): string {
+		return formatUtilizationPercent(this.account.utilization7d ?? null);
 	}
 }
 

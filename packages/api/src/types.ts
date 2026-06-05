@@ -27,6 +27,15 @@ export interface AccountResponse {
 	};
 	rateLimitReset: string | null;
 	rateLimitRemaining: number | null;
+	// Window-specific quota telemetry (Anthropic). Utilization is a 0..1 fraction;
+	// resets are ISO strings. Null until the account has served a request.
+	utilization5h: number | null;
+	reset5h: string | null;
+	status5h: string | null;
+	utilization7d: number | null;
+	reset7d: string | null;
+	status7d: string | null;
+	overageStatus: string | null;
 	sessionInfo: {
 		active: boolean;
 		startedAt: string | null;

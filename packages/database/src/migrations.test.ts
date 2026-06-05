@@ -124,6 +124,13 @@ describe("database schema", () => {
 				"rate_limit_reset",
 				"rate_limit_status",
 				"rate_limit_remaining",
+				"ratelimit_5h_utilization",
+				"ratelimit_5h_reset",
+				"ratelimit_5h_status",
+				"ratelimit_7d_utilization",
+				"ratelimit_7d_reset",
+				"ratelimit_7d_status",
+				"overage_status",
 			]);
 
 			const providerColumn = accountColumns.find(
@@ -685,6 +692,39 @@ describe("database schema", () => {
 					}),
 				]),
 			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("adds utilization columns to a legacy accounts table and is idempotent", () => {
+		const db = new Database(":memory:");
+		try {
+			createV1Schema(db);
+			const utilColumns = [
+				"ratelimit_5h_utilization",
+				"ratelimit_5h_reset",
+				"ratelimit_5h_status",
+				"ratelimit_7d_utilization",
+				"ratelimit_7d_reset",
+				"ratelimit_7d_status",
+				"overage_status",
+			];
+
+			// Old schema lacks every utilization column.
+			const before = getTableColumns(db, "accounts").map((c) => c.name);
+			for (const col of utilColumns) expect(before).not.toContain(col);
+
+			expect(() => runMigrations(db)).not.toThrow();
+			const after = getTableColumns(db, "accounts").map((c) => c.name);
+			for (const col of utilColumns) expect(after).toContain(col);
+
+			// Running again must not throw or duplicate columns.
+			expect(() => runMigrations(db)).not.toThrow();
+			const final = getTableColumns(db, "accounts").map((c) => c.name);
+			for (const col of utilColumns) {
+				expect(final.filter((c) => c === col)).toHaveLength(1);
+			}
 		} finally {
 			db.close();
 		}

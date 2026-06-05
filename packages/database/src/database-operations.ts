@@ -5,6 +5,7 @@ import type { Disposable } from "@ccflare/core";
 import type {
 	Account,
 	AccountProvider,
+	AccountUtilizationUpdate,
 	AnalyticsResponse,
 	AuthMethod,
 	HttpMethod,
@@ -169,8 +170,15 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		status: string,
 		reset: number | null,
 		remaining?: number | null,
+		util?: AccountUtilizationUpdate,
 	): void {
-		this.accounts.updateRateLimitMeta(accountId, status, reset, remaining);
+		this.accounts.updateRateLimitMeta(
+			accountId,
+			status,
+			reset,
+			remaining,
+			util,
+		);
 	}
 
 	pauseAccount(accountId: string): void {

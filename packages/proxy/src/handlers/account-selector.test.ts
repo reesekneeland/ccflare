@@ -30,6 +30,13 @@ function createAccount(
 		rate_limit_reset: null,
 		rate_limit_status: null,
 		rate_limit_remaining: null,
+		ratelimit_5h_utilization: null,
+		ratelimit_5h_reset: null,
+		ratelimit_5h_status: null,
+		ratelimit_7d_utilization: null,
+		ratelimit_7d_reset: null,
+		ratelimit_7d_status: null,
+		overage_status: null,
 	};
 }
 

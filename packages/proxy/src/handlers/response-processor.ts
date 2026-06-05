@@ -51,12 +51,22 @@ export function updateAccountMetadata(
 	// Only update rate limit metadata when we have actual rate limit headers
 	if (rateLimitInfo.statusHeader) {
 		const status = rateLimitInfo.statusHeader;
+		const util = {
+			fiveHourUtilization: rateLimitInfo.fiveHourUtilization,
+			fiveHourReset: rateLimitInfo.fiveHourReset,
+			fiveHourStatus: rateLimitInfo.fiveHourStatus,
+			sevenDayUtilization: rateLimitInfo.sevenDayUtilization,
+			sevenDayReset: rateLimitInfo.sevenDayReset,
+			sevenDayStatus: rateLimitInfo.sevenDayStatus,
+			overageStatus: rateLimitInfo.overageStatus,
+		};
 		ctx.asyncWriter.enqueue(() =>
 			ctx.dbOps.updateAccountRateLimitMeta(
 				account.id,
 				status,
 				rateLimitInfo.resetTime ?? null,
 				rateLimitInfo.remaining,
+				util,
 			),
 		);
 	}

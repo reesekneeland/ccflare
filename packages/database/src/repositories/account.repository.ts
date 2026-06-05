@@ -1,4 +1,4 @@
-import type { Account } from "@ccflare/types";
+import type { Account, AccountUtilizationUpdate } from "@ccflare/types";
 import { type AccountRow, toAccount } from "../models/account-row";
 import { BaseRepository } from "./base.repository";
 
@@ -25,7 +25,9 @@ const accountSelectFields = `
 	rate_limited_until, session_start, session_request_count,
 	COALESCE(weight, 1) as weight,
 	COALESCE(paused, 0) as paused,
-	rate_limit_reset, rate_limit_status, rate_limit_remaining
+	rate_limit_reset, rate_limit_status, rate_limit_remaining,
+	ratelimit_5h_utilization, ratelimit_5h_reset, ratelimit_5h_status,
+	ratelimit_7d_utilization, ratelimit_7d_reset, ratelimit_7d_status, overage_status
 `;
 
 export class AccountRepository extends BaseRepository<Account> {
@@ -277,10 +279,28 @@ export class AccountRepository extends BaseRepository<Account> {
 		status: string,
 		reset: number | null,
 		remaining?: number | null,
+		util?: AccountUtilizationUpdate,
 	): void {
 		this.run(
-			`UPDATE accounts SET rate_limit_status = ?, rate_limit_reset = ?, rate_limit_remaining = ? WHERE id = ?`,
-			[status, reset, remaining ?? null, accountId],
+			`UPDATE accounts SET
+				rate_limit_status = ?, rate_limit_reset = ?, rate_limit_remaining = ?,
+				ratelimit_5h_utilization = ?, ratelimit_5h_reset = ?, ratelimit_5h_status = ?,
+				ratelimit_7d_utilization = ?, ratelimit_7d_reset = ?, ratelimit_7d_status = ?,
+				overage_status = ?
+			WHERE id = ?`,
+			[
+				status,
+				reset,
+				remaining ?? null,
+				util?.fiveHourUtilization ?? null,
+				util?.fiveHourReset ?? null,
+				util?.fiveHourStatus ?? null,
+				util?.sevenDayUtilization ?? null,
+				util?.sevenDayReset ?? null,
+				util?.sevenDayStatus ?? null,
+				util?.overageStatus ?? null,
+				accountId,
+			],
 		);
 	}
 

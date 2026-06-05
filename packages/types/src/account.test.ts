@@ -40,6 +40,13 @@ describe("toAccount", () => {
 			rate_limit_reset: now + 180_000,
 			rate_limit_status: "allowed_warning",
 			rate_limit_remaining: 2,
+			ratelimit_5h_utilization: null,
+			ratelimit_5h_reset: null,
+			ratelimit_5h_status: null,
+			ratelimit_7d_utilization: null,
+			ratelimit_7d_reset: null,
+			ratelimit_7d_status: null,
+			overage_status: null,
 		};
 
 		expect(getAccountRateLimitInfo(account, now)).toEqual({

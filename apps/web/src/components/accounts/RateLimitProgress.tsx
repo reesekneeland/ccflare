@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { formatRemaining, useNow } from "../../lib/relativeTime";
 import { cn } from "../../lib/utils";
 import { Progress } from "../ui/progress";
 
@@ -13,12 +13,7 @@ export function RateLimitProgress({
 	resetIso,
 	className,
 }: RateLimitProgressProps) {
-	const [now, setNow] = useState(Date.now());
-
-	useEffect(() => {
-		const interval = setInterval(() => setNow(Date.now()), 10000); // Update every 10 seconds
-		return () => clearInterval(interval);
-	}, []);
+	const now = useNow();
 
 	if (!resetIso) return null;
 
@@ -27,19 +22,9 @@ export function RateLimitProgress({
 	const elapsed = now - startTime;
 	const percentage = Math.min(100, Math.max(0, (elapsed / WINDOW_MS) * 100));
 	const remainingMs = Math.max(0, resetTime - now);
-	const remainingMinutes = Math.ceil(remainingMs / 60000);
-	const remainingHours = Math.floor(remainingMinutes / 60);
-	const remainingMins = remainingMinutes % 60;
-
-	// Format time remaining
-	let timeText = "";
-	if (remainingMs <= 0) {
-		timeText = "Ready to refresh";
-	} else if (remainingHours > 0) {
-		timeText = `${remainingHours}h ${remainingMins}m until refresh`;
-	} else {
-		timeText = `${remainingMinutes}m until refresh`;
-	}
+	const remaining = formatRemaining(resetTime, now);
+	const timeText =
+		remainingMs <= 0 ? "Ready to refresh" : `${remaining} until refresh`;
 
 	return (
 		<div className={cn("space-y-2", className)}>

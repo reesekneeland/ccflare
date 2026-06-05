@@ -31,6 +31,13 @@ function createAccount(
 		rate_limit_reset: null,
 		rate_limit_status: null,
 		rate_limit_remaining: null,
+		ratelimit_5h_utilization: null,
+		ratelimit_5h_reset: null,
+		ratelimit_5h_status: null,
+		ratelimit_7d_utilization: null,
+		ratelimit_7d_reset: null,
+		ratelimit_7d_status: null,
+		overage_status: null,
 		...overrides,
 	};
 }
@@ -159,5 +166,136 @@ describe("SessionStrategy", () => {
 
 		const selected = strategy.select([lastResort, preferred], meta);
 		expect(selected[0].name).toBe("rek");
+	});
+
+	describe("burn-down ordering", () => {
+		const future = Date.now() + 60 * 60 * 1000;
+
+		it("picks the highest 5h utilization first (no last-resort configured)", () => {
+			const strategy = makeStrategy(); // burn-down must apply with no last-resort
+			const low = createAccount("a", "low", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+			const high = createAccount("b", "high", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+
+			const selected = strategy.select([low, high], meta);
+			expect(selected.map((a) => a.name)).toEqual(["high", "low"]);
+		});
+
+		it("breaks utilization ties by soonest 7d reset", () => {
+			const strategy = makeStrategy();
+			const later = createAccount("a", "later", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 7 * 86_400_000,
+			});
+			const sooner = createAccount("b", "sooner", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 1 * 86_400_000,
+			});
+
+			const selected = strategy.select([later, sooner], meta);
+			expect(selected.map((a) => a.name)).toEqual(["sooner", "later"]);
+		});
+
+		it("sorts a never-seen (null util) account last among preferred", () => {
+			const strategy = makeStrategy();
+			const unseen = createAccount("a", "unseen");
+			const seen = createAccount("b", "seen", {
+				ratelimit_5h_utilization: 0.1,
+				ratelimit_5h_reset: future,
+			});
+
+			const selected = strategy.select([unseen, seen], meta);
+			expect(selected.map((a) => a.name)).toEqual(["seen", "unseen"]);
+		});
+
+		it("treats a rolled-over (stale-reset) window as 0 util", () => {
+			const strategy = makeStrategy();
+			// 'stale' has high stored util but its 5h window already reset → effective 0,
+			// so it should rank BELOW a seat genuinely at 0.3, and ABOVE a never-seen seat.
+			const stale = createAccount("a", "stale", {
+				ratelimit_5h_utilization: 0.95,
+				ratelimit_5h_reset: Date.now() - 1000,
+			});
+			const active = createAccount("b", "active", {
+				ratelimit_5h_utilization: 0.3,
+				ratelimit_5h_reset: future,
+			});
+			const unseen = createAccount("c", "unseen");
+
+			const selected = strategy.select([stale, unseen, active], meta);
+			expect(selected.map((a) => a.name)).toEqual([
+				"active",
+				"stale",
+				"unseen",
+			]);
+		});
+
+		it("keeps last-resort last even when it has the highest utilization", () => {
+			const strategy = makeStrategy(["reese"]);
+			const reese = createAccount("a", "reese", {
+				ratelimit_5h_utilization: 0.99,
+				ratelimit_5h_reset: future,
+			});
+			const rek = createAccount("b", "rek", {
+				ratelimit_5h_utilization: 0.1,
+				ratelimit_5h_reset: future,
+			});
+
+			const selected = strategy.select([reese, rek], meta);
+			expect(selected.map((a) => a.name)).toEqual(["rek", "reese"]);
+		});
+
+		it("is deterministic across calls", () => {
+			const strategy = makeStrategy();
+			const a = createAccount("a", "aaa", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+			});
+			const b = createAccount("b", "bbb", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+			});
+			const first = strategy.select([a, b], meta).map((x) => x.name);
+			const second = strategy.select([b, a], meta).map((x) => x.name);
+			expect(first).toEqual(second);
+		});
+
+		it("stickiness overrides burn-down ranking", () => {
+			const strategy = makeStrategy();
+			// 'sticky' has an active session but lower util; burn-down would prefer 'hot'.
+			const sticky = createAccount("a", "sticky", {
+				session_start: Date.now() - 1000,
+				ratelimit_5h_utilization: 0.1,
+				ratelimit_5h_reset: future,
+			});
+			const hot = createAccount("b", "hot", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+
+			const selected = strategy.select([hot, sticky], meta);
+			expect(selected[0].name).toBe("sticky");
+		});
+
+		it("a sticky account with null util still wins over a high-util preferred", () => {
+			const strategy = makeStrategy();
+			const sticky = createAccount("a", "sticky", {
+				session_start: Date.now() - 1000,
+			});
+			const hot = createAccount("b", "hot", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+
+			const selected = strategy.select([hot, sticky], meta);
+			expect(selected[0].name).toBe("sticky");
+		});
 	});
 });

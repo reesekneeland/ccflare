@@ -88,4 +88,65 @@ describe("AnthropicProvider", () => {
 			remaining: 17,
 		});
 	});
+
+	it("parses 5h/7d window utilization, resets, and overage status", () => {
+		const fiveHourResetSeconds = Math.floor((Date.now() + 3_600_000) / 1000);
+		const sevenDayResetSeconds = Math.floor((Date.now() + 86_400_000) / 1000);
+		const response = new Response("{}", {
+			status: 200,
+			headers: {
+				"anthropic-ratelimit-unified-status": "allowed_warning",
+				"anthropic-ratelimit-unified-reset": String(sevenDayResetSeconds),
+				"anthropic-ratelimit-unified-5h-utilization": "0.18",
+				"anthropic-ratelimit-unified-5h-reset": String(fiveHourResetSeconds),
+				"anthropic-ratelimit-unified-5h-status": "allowed",
+				"anthropic-ratelimit-unified-7d-utilization": "0.85",
+				"anthropic-ratelimit-unified-7d-reset": String(sevenDayResetSeconds),
+				"anthropic-ratelimit-unified-7d-status": "allowed_warning",
+				"anthropic-ratelimit-unified-overage-status": "rejected",
+			},
+		});
+
+		expect(provider.parseRateLimit(response)).toMatchObject({
+			isRateLimited: false,
+			statusHeader: "allowed_warning",
+			fiveHourUtilization: 0.18,
+			fiveHourReset: fiveHourResetSeconds * 1000,
+			fiveHourStatus: "allowed",
+			sevenDayUtilization: 0.85,
+			sevenDayReset: sevenDayResetSeconds * 1000,
+			sevenDayStatus: "allowed_warning",
+			overageStatus: "rejected",
+		});
+	});
+
+	it("leaves window fields undefined when only the rollup is present", () => {
+		const resetSeconds = Math.floor((Date.now() + 120_000) / 1000);
+		const response = new Response("{}", {
+			status: 200,
+			headers: {
+				"anthropic-ratelimit-unified-status": "allowed",
+				"anthropic-ratelimit-unified-reset": String(resetSeconds),
+			},
+		});
+
+		const info = provider.parseRateLimit(response);
+		expect(info.fiveHourUtilization).toBeUndefined();
+		expect(info.sevenDayReset).toBeUndefined();
+		expect(info.overageStatus).toBeUndefined();
+	});
+
+	it("429 fallback marks rate-limited and emits no window fields", () => {
+		const response = new Response("{}", {
+			status: 429,
+			headers: { "x-ratelimit-reset": String(Math.floor(Date.now() / 1000)) },
+		});
+
+		const info = provider.parseRateLimit(response);
+		expect(info.isRateLimited).toBe(true);
+		expect(info.fiveHourUtilization).toBeUndefined();
+		expect(info.sevenDayUtilization).toBeUndefined();
+		expect(info.fiveHourStatus).toBeUndefined();
+		expect(info.overageStatus).toBeUndefined();
+	});
 });

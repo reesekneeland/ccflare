@@ -44,16 +44,50 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	}
 
 	/**
-	 * Stable partition: preferred accounts first, last-resort accounts at the
-	 * end, so they are only chosen (or failed over to) when nothing else is
-	 * available.
+	 * Effective 5-hour quota utilization for ranking. A window whose reset has
+	 * already passed is stale (we just haven't observed the fresh value yet), so
+	 * treat it as 0 (not burned). A never-seen account (null) returns -1 so it
+	 * sorts after any account with an observed value — burn-down prefers seats
+	 * with known burn before trying an unknown one.
+	 */
+	private effective5hUtil(account: Account, now: number): number {
+		if (account.ratelimit_5h_utilization == null) return -1;
+		if (
+			account.ratelimit_5h_reset != null &&
+			now >= account.ratelimit_5h_reset
+		) {
+			return 0;
+		}
+		return account.ratelimit_5h_utilization;
+	}
+
+	/**
+	 * Burn-down order: most-utilized 5h seat first (finish one before opening the
+	 * next), tie-broken by soonest 7-day reset, then name for determinism.
+	 */
+	private compareBurnDown(a: Account, b: Account, now: number): number {
+		const ua = this.effective5hUtil(a, now);
+		const ub = this.effective5hUtil(b, now);
+		if (ua !== ub) return ub - ua;
+		const ra = a.ratelimit_7d_reset ?? Number.POSITIVE_INFINITY;
+		const rb = b.ratelimit_7d_reset ?? Number.POSITIVE_INFINITY;
+		if (ra !== rb) return ra - rb;
+		return a.name.localeCompare(b.name);
+	}
+
+	/**
+	 * Order accounts for selection/failover: preferred accounts in burn-down
+	 * order, then last-resort accounts (only reached when nothing else is
+	 * available). The burn-down sort applies whether or not last-resort accounts
+	 * are configured.
 	 */
 	private prioritize(accounts: Account[]): Account[] {
-		if (this.lastResortNames.size === 0) return accounts;
-		return [
-			...accounts.filter((a) => !this.isLastResort(a)),
-			...accounts.filter((a) => this.isLastResort(a)),
-		];
+		const now = Date.now();
+		const preferred = accounts
+			.filter((a) => !this.isLastResort(a))
+			.sort((x, y) => this.compareBurnDown(x, y, now));
+		const lastResort = accounts.filter((a) => this.isLastResort(a));
+		return [...preferred, ...lastResort];
 	}
 
 	private startNewSession(account: Account, now: number): void {

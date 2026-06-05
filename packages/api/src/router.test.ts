@@ -555,6 +555,13 @@ describe("APIRouter", () => {
 			};
 			rateLimitReset: string | null;
 			rateLimitRemaining: number | null;
+			utilization5h: number | null;
+			reset5h: string | null;
+			status5h: string | null;
+			utilization7d: number | null;
+			reset7d: string | null;
+			status7d: string | null;
+			overageStatus: string | null;
 			sessionInfo: {
 				active: boolean;
 				startedAt: string | null;
@@ -583,6 +590,13 @@ describe("APIRouter", () => {
 				},
 				rateLimitReset: null,
 				rateLimitRemaining: null,
+				utilization5h: null,
+				reset5h: null,
+				status5h: null,
+				utilization7d: null,
+				reset7d: null,
+				status7d: null,
+				overageStatus: null,
 				sessionInfo: {
 					active: false,
 					startedAt: null,

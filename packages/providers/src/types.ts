@@ -11,6 +11,15 @@ export interface RateLimitInfo {
 	resetTime?: number;
 	statusHeader?: string;
 	remaining?: number;
+	// Window-specific unified rate-limit telemetry (Anthropic). Utilization is a
+	// 0..1 fraction; resets are ms epoch (converted from the header's seconds).
+	fiveHourUtilization?: number;
+	fiveHourReset?: number;
+	fiveHourStatus?: string;
+	sevenDayUtilization?: number;
+	sevenDayReset?: number;
+	sevenDayStatus?: string;
+	overageStatus?: string;
 }
 
 export interface Provider {

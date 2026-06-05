@@ -40,6 +40,17 @@ export function serializeAccount(
 			? new Date(rateLimit.resetAt).toISOString()
 			: null,
 		rateLimitRemaining: rateLimit.remaining,
+		utilization5h: account.ratelimit_5h_utilization,
+		reset5h: account.ratelimit_5h_reset
+			? new Date(account.ratelimit_5h_reset).toISOString()
+			: null,
+		status5h: account.ratelimit_5h_status,
+		utilization7d: account.ratelimit_7d_utilization,
+		reset7d: account.ratelimit_7d_reset
+			? new Date(account.ratelimit_7d_reset).toISOString()
+			: null,
+		status7d: account.ratelimit_7d_status,
+		overageStatus: account.overage_status,
 		sessionInfo: {
 			active: session.active,
 			startedAt: session.startedAt
