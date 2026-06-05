@@ -310,11 +310,19 @@ The schema intentionally reflects current behavior only.
 
 `packages/proxy` currently exposes the session strategy.
 
-Its job is narrow:
+Its job:
 
-- select accounts
-- preserve session affinity
+- select accounts, preserving session affinity (a sticky account is burned down
+  before the next is opened)
 - avoid paused or rate-limited accounts
+- order candidates by **burn-down ranking**: highest 5-hour quota utilization first,
+  tie-broken by soonest 7-day reset (utilization comes from response headers plus the
+  usage poller below)
+- keep **last-resort accounts** (`CCFLARE_LAST_RESORT_ACCOUNTS`) at the end of the
+  order, and preempt an active last-resort session as soon as a preferred account
+  becomes available
+
+See [`docs/load-balancing.md`](load-balancing.md) for the full selection algorithm.
 
 The strategy is injected into the proxy context and may be rebuilt when config changes.
 
@@ -322,10 +330,14 @@ The strategy is injected into the proxy context and may be rebuilt when config c
 
 ccflare pushes expensive observability work off the hot request path.
 
-Two main mechanisms:
+Three main mechanisms:
 
 - `AsyncDbWriter` for non-blocking DB writes
 - proxy post-processor worker for stream/websocket usage extraction and payload handling
+- the **usage poller** (`packages/proxy/src/usage-poller.ts`), a periodic background
+  service (every `CF_USAGE_POLL_MS`, default 60s, `0` disables) that refreshes each
+  non-paused account's 5h/7d quota utilization from the provider's zero-cost usage
+  endpoint, so the dashboard and burn-down ranking have data for idle accounts too
 
 This keeps request forwarding responsive while preserving detailed monitoring data.
 

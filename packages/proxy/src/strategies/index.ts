@@ -85,7 +85,11 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		const preferred = accounts
 			.filter((a) => !this.isLastResort(a))
 			.sort((x, y) => this.compareBurnDown(x, y, now));
-		const lastResort = accounts.filter((a) => this.isLastResort(a));
+		// Last-resort accounts trail, but order among themselves by the same
+		// burn-down comparator so multi-last-resort setups stay deterministic.
+		const lastResort = accounts
+			.filter((a) => this.isLastResort(a))
+			.sort((x, y) => this.compareBurnDown(x, y, now));
 		return [...preferred, ...lastResort];
 	}
 

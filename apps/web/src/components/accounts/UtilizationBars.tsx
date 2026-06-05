@@ -46,7 +46,8 @@ function QuotaBar({
 	const rolledOver = resetMs != null && now >= resetMs;
 	const effective = rolledOver ? 0 : utilization;
 	const percentage = Math.min(100, Math.max(0, effective * 100));
-	const isWarning = status === "allowed_warning";
+	// A rolled-over window's stored status is stale too — never warn on it.
+	const isWarning = !rolledOver && status === "allowed_warning";
 
 	return (
 		<div className="space-y-1">

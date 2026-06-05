@@ -237,6 +237,38 @@ describe("SessionStrategy", () => {
 			]);
 		});
 
+		it("orders multiple last-resort accounts by burn-down among themselves", () => {
+			const strategy = makeStrategy(["lr-low", "lr-high"]);
+			const lrLow = createAccount("a", "lr-low", {
+				ratelimit_5h_utilization: 0.1,
+				ratelimit_5h_reset: future,
+			});
+			const lrHigh = createAccount("b", "lr-high", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+
+			// No preferred accounts: the most-burned last-resort seat goes first.
+			expect(strategy.select([lrLow, lrHigh], meta).map((a) => a.name)).toEqual(
+				["lr-high", "lr-low"],
+			);
+
+			// Reversed input order (fresh state so no session stickiness applies):
+			// ordering must be identical, not input-order dependent.
+			const strategy2 = makeStrategy(["lr-low", "lr-high"]);
+			const lrLow2 = createAccount("a", "lr-low", {
+				ratelimit_5h_utilization: 0.1,
+				ratelimit_5h_reset: future,
+			});
+			const lrHigh2 = createAccount("b", "lr-high", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+			expect(
+				strategy2.select([lrHigh2, lrLow2], meta).map((a) => a.name),
+			).toEqual(["lr-high", "lr-low"]);
+		});
+
 		it("keeps last-resort last even when it has the highest utilization", () => {
 			const strategy = makeStrategy(["reese"]);
 			const reese = createAccount("a", "reese", {

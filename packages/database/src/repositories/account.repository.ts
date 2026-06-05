@@ -290,27 +290,38 @@ export class AccountRepository extends BaseRepository<Account> {
 	}
 
 	/**
-	 * Write only the window-utilization columns (5h/7d util+reset+status, overage),
-	 * leaving the rollup rate_limit_* columns untouched. Used by the zero-cost
-	 * usage poller, which refreshes quota for all accounts without a billed request.
+	 * Write only the window-utilization columns that are actually present in the
+	 * update (`undefined` fields are skipped, not nulled), leaving the rollup
+	 * rate_limit_* columns and any unreported window untouched. A partial source
+	 * — e.g. a response carrying only the overage header, or a usage payload
+	 * missing one window — therefore can't erase previously stored data.
 	 */
 	updateUtilization(accountId: string, util: AccountUtilizationUpdate): void {
+		const columnByField = [
+			["fiveHourUtilization", "ratelimit_5h_utilization"],
+			["fiveHourReset", "ratelimit_5h_reset"],
+			["fiveHourStatus", "ratelimit_5h_status"],
+			["sevenDayUtilization", "ratelimit_7d_utilization"],
+			["sevenDayReset", "ratelimit_7d_reset"],
+			["sevenDayStatus", "ratelimit_7d_status"],
+			["overageStatus", "overage_status"],
+		] as const;
+
+		const assignments: string[] = [];
+		const values: (string | number)[] = [];
+		for (const [field, column] of columnByField) {
+			const value = util[field];
+			if (value !== undefined) {
+				assignments.push(`${column} = ?`);
+				values.push(value);
+			}
+		}
+		if (assignments.length === 0) return;
+
+		values.push(accountId);
 		this.run(
-			`UPDATE accounts SET
-				ratelimit_5h_utilization = ?, ratelimit_5h_reset = ?, ratelimit_5h_status = ?,
-				ratelimit_7d_utilization = ?, ratelimit_7d_reset = ?, ratelimit_7d_status = ?,
-				overage_status = ?
-			WHERE id = ?`,
-			[
-				util.fiveHourUtilization ?? null,
-				util.fiveHourReset ?? null,
-				util.fiveHourStatus ?? null,
-				util.sevenDayUtilization ?? null,
-				util.sevenDayReset ?? null,
-				util.sevenDayStatus ?? null,
-				util.overageStatus ?? null,
-				accountId,
-			],
+			`UPDATE accounts SET ${assignments.join(", ")} WHERE id = ?`,
+			values,
 		);
 	}
 

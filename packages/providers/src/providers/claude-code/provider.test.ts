@@ -144,6 +144,19 @@ describe("ClaudeCodeProvider", () => {
 		});
 	});
 
+	it("fetchUsage leaves overageStatus undefined when extra_usage is absent", async () => {
+		globalThis.fetch = createJsonFetchMock({
+			five_hour: { utilization: 10.0, resets_at: "2026-06-05T22:50:00.000Z" },
+			seven_day: { utilization: 20.0, resets_at: "2026-06-07T18:00:00.000Z" },
+		});
+
+		const usage = await provider.fetchUsage("token-xyz");
+
+		expect(usage?.fiveHourUtilization).toBe(0.1);
+		// Unknown overage state must stay undefined (column untouched), not "disabled".
+		expect(usage?.overageStatus).toBeUndefined();
+	});
+
 	it("fetchUsage returns null on a non-OK response", async () => {
 		globalThis.fetch = (async () =>
 			new Response("nope", { status: 401 })) as unknown as typeof fetch;
