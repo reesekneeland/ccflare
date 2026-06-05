@@ -157,8 +157,8 @@ export class ClaudeCodeProvider extends AnthropicProvider {
 			sevenDayReset: seven.reset,
 			sevenDayStatus: seven.status,
 			overageStatus: eu?.is_enabled
-				? (eu.disabled_reason ?? "enabled")
-				: "disabled",
+				? "enabled"
+				: (eu?.disabled_reason ?? "disabled"),
 		};
 	}
 }

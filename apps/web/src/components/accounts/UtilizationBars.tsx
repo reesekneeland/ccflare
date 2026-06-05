@@ -1,4 +1,5 @@
-import { formatRemaining, useNow } from "../../lib/relativeTime";
+import { formatRemaining } from "@ccflare/ui";
+import { useNow } from "../../lib/relativeTime";
 import { cn } from "../../lib/utils";
 import { Progress } from "../ui/progress";
 

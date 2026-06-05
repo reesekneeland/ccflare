@@ -81,8 +81,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	 * available). The burn-down sort applies whether or not last-resort accounts
 	 * are configured.
 	 */
-	private prioritize(accounts: Account[]): Account[] {
-		const now = Date.now();
+	private prioritize(accounts: Account[], now: number): Account[] {
 		const preferred = accounts
 			.filter((a) => !this.isLastResort(a))
 			.sort((x, y) => this.compareBurnDown(x, y, now));
@@ -162,6 +161,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 					accounts.filter(
 						(a) => a.id !== activeAccount.id && isAccountAvailable(a, now),
 					),
+					now,
 				);
 				return [activeAccount, ...others];
 			}
@@ -174,6 +174,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		// session was preempted. Filter available accounts, preferred first.
 		const available = this.prioritize(
 			accounts.filter((a) => isAccountAvailable(a, now)),
+			now,
 		);
 
 		if (available.length === 0) return [];

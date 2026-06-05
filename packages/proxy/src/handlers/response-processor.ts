@@ -51,6 +51,26 @@ export function updateAccountMetadata(
 	// Only update rate limit metadata when we have actual rate limit headers
 	if (rateLimitInfo.statusHeader) {
 		const status = rateLimitInfo.statusHeader;
+		ctx.asyncWriter.enqueue(() =>
+			ctx.dbOps.updateAccountRateLimitMeta(
+				account.id,
+				status,
+				rateLimitInfo.resetTime ?? null,
+				rateLimitInfo.remaining,
+			),
+		);
+	}
+
+	// Persist window utilization only when this response actually carried it.
+	// Otherwise a response with just the rollup header would null out the 5h/7d
+	// values the usage poller populated for windows this request didn't report.
+	const hasWindowData =
+		rateLimitInfo.fiveHourUtilization !== undefined ||
+		rateLimitInfo.sevenDayUtilization !== undefined ||
+		rateLimitInfo.fiveHourReset !== undefined ||
+		rateLimitInfo.sevenDayReset !== undefined ||
+		rateLimitInfo.overageStatus !== undefined;
+	if (hasWindowData) {
 		const util = {
 			fiveHourUtilization: rateLimitInfo.fiveHourUtilization,
 			fiveHourReset: rateLimitInfo.fiveHourReset,
@@ -61,13 +81,7 @@ export function updateAccountMetadata(
 			overageStatus: rateLimitInfo.overageStatus,
 		};
 		ctx.asyncWriter.enqueue(() =>
-			ctx.dbOps.updateAccountRateLimitMeta(
-				account.id,
-				status,
-				rateLimitInfo.resetTime ?? null,
-				rateLimitInfo.remaining,
-				util,
-			),
+			ctx.dbOps.updateAccountUtilization(account.id, util),
 		);
 	}
 }

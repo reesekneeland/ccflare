@@ -117,7 +117,11 @@ describe("ClaudeCodeProvider", () => {
 			{
 				five_hour: { utilization: 21.0, resets_at: fiveReset },
 				seven_day: { utilization: 90.0, resets_at: sevenReset },
-				extra_usage: { is_enabled: true, disabled_reason: null },
+				// is_enabled wins even when a stale disabled_reason is present.
+				extra_usage: {
+					is_enabled: true,
+					disabled_reason: "suspended_due_to_nonpayment",
+				},
 			},
 			(request) => {
 				requestUrl = request.url;

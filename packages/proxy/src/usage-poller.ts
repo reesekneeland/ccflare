@@ -24,7 +24,9 @@ function resolvePollInterval(): number {
  * providers that implement `fetchUsage` (claude-code) are polled; others skip.
  */
 async function pollOnce(ctx: ProxyContext): Promise<void> {
-	const accounts = ctx.dbOps.getAllAccounts();
+	// Skip paused accounts: polling them would trigger token refreshes (and
+	// failure backoff) for seats that aren't serving traffic.
+	const accounts = ctx.dbOps.getAllAccounts().filter((a) => !a.paused);
 	for (const account of accounts) {
 		const provider = ctx.providerRegistry.getProvider(account.provider);
 		if (!provider?.fetchUsage) continue;

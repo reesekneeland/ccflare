@@ -170,15 +170,8 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		status: string,
 		reset: number | null,
 		remaining?: number | null,
-		util?: AccountUtilizationUpdate,
 	): void {
-		this.accounts.updateRateLimitMeta(
-			accountId,
-			status,
-			reset,
-			remaining,
-			util,
-		);
+		this.accounts.updateRateLimitMeta(accountId, status, reset, remaining);
 	}
 
 	updateAccountUtilization(
