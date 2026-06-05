@@ -49,7 +49,8 @@ export interface Account {
 }
 
 // Window-specific quota telemetry passed from the proxy to the persistence layer.
-// All optional: absent fields are written as NULL.
+// Partial update: only defined (non-undefined) fields are written; absent fields
+// leave the existing DB value unchanged.
 export interface AccountUtilizationUpdate {
 	fiveHourUtilization?: number;
 	fiveHourReset?: number;

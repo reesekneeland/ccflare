@@ -88,10 +88,9 @@ export function UtilizationBars({
 	status7d,
 	className,
 }: UtilizationBarsProps) {
-	const now = useNow();
-
 	// Cold-start: no account has served a request yet (everything null). Show a
-	// single muted line instead of two em-dash rows.
+	// single muted line instead of two em-dash rows — without mounting the
+	// ticking-clock component, so idle cards don't each hold a live interval.
 	if (util5h == null && util7d == null) {
 		return (
 			<div className={cn("text-xs text-muted-foreground", className)}>
@@ -99,6 +98,32 @@ export function UtilizationBars({
 			</div>
 		);
 	}
+
+	return (
+		<LiveUtilizationBars
+			util5h={util5h}
+			reset5h={reset5h}
+			status5h={status5h}
+			util7d={util7d}
+			reset7d={reset7d}
+			status7d={status7d}
+			className={className}
+		/>
+	);
+}
+
+// Separate component so the useNow() interval only exists when there is
+// actually a countdown to render (rules-of-hooks–safe conditional clock).
+function LiveUtilizationBars({
+	util5h,
+	reset5h,
+	status5h,
+	util7d,
+	reset7d,
+	status7d,
+	className,
+}: UtilizationBarsProps) {
+	const now = useNow();
 
 	return (
 		<div className={cn("space-y-2", className)}>

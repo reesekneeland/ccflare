@@ -24,16 +24,20 @@ graph TD
     DB[(SQLite)]
     PROVIDERS[providers]
     WORKER[post-processor worker]
+    POLLER[usage poller]
 
     CLIENT --> SERVER
     SERVER --> API
     SERVER --> DASH
     SERVER --> PROXY
+    SERVER --> POLLER
     API --> DB
     PROXY --> PROVIDERS
     PROXY --> DB
     PROXY --> WORKER
     WORKER --> DB
+    POLLER --> PROVIDERS
+    POLLER --> DB
 ```
 
 ## HTTP Management Requests
@@ -231,6 +235,11 @@ The main mechanisms are:
 
 - `AsyncDbWriter` for non-blocking writes
 - the proxy post-processor worker for stream/websocket usage extraction
+- the usage poller (`packages/proxy/src/usage-poller.ts`), a periodic service
+  (every `CF_USAGE_POLL_MS`, default 60s, `0` disables) that fetches each
+  non-paused account's 5h/7d quota utilization from the provider's zero-cost
+  usage endpoint and persists it, so idle accounts have fresh data for the
+  dashboard and burn-down ranking
 
 ### Background Persistence Flow
 
@@ -238,13 +247,17 @@ The main mechanisms are:
 graph TD
     PROXY[proxy]
     WORKER[post-processor worker]
+    POLLER[usage poller]
     WRITER[AsyncDbWriter]
     DB[(SQLite)]
+    PROVIDERS[providers]
 
     PROXY --> WRITER
     PROXY --> WORKER
     WORKER --> WRITER
     WRITER --> DB
+    POLLER --> PROVIDERS
+    POLLER --> DB
 ```
 
 This keeps forwarding latency low while preserving detailed observability.

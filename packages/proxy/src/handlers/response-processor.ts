@@ -61,25 +61,19 @@ export function updateAccountMetadata(
 		);
 	}
 
-	// Persist window utilization only when this response actually carried it.
-	// Otherwise a response with just the rollup header would null out the 5h/7d
-	// values the usage poller populated for windows this request didn't report.
-	const hasWindowData =
-		rateLimitInfo.fiveHourUtilization !== undefined ||
-		rateLimitInfo.sevenDayUtilization !== undefined ||
-		rateLimitInfo.fiveHourReset !== undefined ||
-		rateLimitInfo.sevenDayReset !== undefined ||
-		rateLimitInfo.overageStatus !== undefined;
-	if (hasWindowData) {
-		const util = {
-			fiveHourUtilization: rateLimitInfo.fiveHourUtilization,
-			fiveHourReset: rateLimitInfo.fiveHourReset,
-			fiveHourStatus: rateLimitInfo.fiveHourStatus,
-			sevenDayUtilization: rateLimitInfo.sevenDayUtilization,
-			sevenDayReset: rateLimitInfo.sevenDayReset,
-			sevenDayStatus: rateLimitInfo.sevenDayStatus,
-			overageStatus: rateLimitInfo.overageStatus,
-		};
+	// Persist window utilization only when this response actually carried some.
+	// updateAccountUtilization writes just the defined fields, so windows this
+	// response didn't report keep whatever the usage poller stored for them.
+	const util = {
+		fiveHourUtilization: rateLimitInfo.fiveHourUtilization,
+		fiveHourReset: rateLimitInfo.fiveHourReset,
+		fiveHourStatus: rateLimitInfo.fiveHourStatus,
+		sevenDayUtilization: rateLimitInfo.sevenDayUtilization,
+		sevenDayReset: rateLimitInfo.sevenDayReset,
+		sevenDayStatus: rateLimitInfo.sevenDayStatus,
+		overageStatus: rateLimitInfo.overageStatus,
+	};
+	if (Object.values(util).some((value) => value !== undefined)) {
 		ctx.asyncWriter.enqueue(() =>
 			ctx.dbOps.updateAccountUtilization(account.id, util),
 		);
