@@ -181,6 +181,13 @@ export class DatabaseOperations implements StrategyStore, Disposable {
 		);
 	}
 
+	updateAccountUtilization(
+		accountId: string,
+		util: AccountUtilizationUpdate,
+	): void {
+		this.accounts.updateUtilization(accountId, util);
+	}
+
 	pauseAccount(accountId: string): void {
 		this.accounts.pause(accountId);
 	}

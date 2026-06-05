@@ -4,6 +4,7 @@ import { DatabaseFactory } from "@ccflare/database";
 import { Logger, LogLevel } from "@ccflare/logger";
 import { providerRegistry } from "@ccflare/providers";
 import {
+	startUsagePoller,
 	terminateUsageWorker,
 	waitForProxyBackgroundTasks,
 	websocketProxyHandler,
@@ -23,6 +24,7 @@ const lifecycleLog = new Logger("ServerLifecycle", LogLevel.INFO, {
 // Module-level server instance
 let serverInstance: ReturnType<typeof serve> | null = null;
 let stopRetentionJob: (() => void) | null = null;
+let stopUsagePollerJob: (() => void) | null = null;
 let serverStopPromise: Promise<void> | null = null;
 
 export interface ServerHandle {
@@ -39,6 +41,10 @@ function stopRetentionMaintenance(): void {
 	if (stopRetentionJob) {
 		stopRetentionJob();
 		stopRetentionJob = null;
+	}
+	if (stopUsagePollerJob) {
+		stopUsagePollerJob();
+		stopUsagePollerJob = null;
 	}
 }
 
@@ -138,6 +144,7 @@ export default function startServer(
 		bootstrapRuntime(port, serverLog);
 
 	stopRetentionJob = runStartupMaintenance(config, dbOps);
+	stopUsagePollerJob = startUsagePoller(proxyContext);
 
 	const fetchHandler = createServerFetchHandler({
 		apiRouter,

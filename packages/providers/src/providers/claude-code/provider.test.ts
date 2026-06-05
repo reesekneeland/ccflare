@@ -107,4 +107,42 @@ describe("ClaudeCodeProvider", () => {
 			remaining: 17,
 		});
 	});
+
+	it("fetchUsage normalizes the zero-cost usage endpoint (0-100 → 0-1, derived status)", async () => {
+		const fiveReset = "2026-06-05T22:50:00.000+00:00";
+		const sevenReset = "2026-06-07T18:00:00.000+00:00";
+		let requestUrl = "";
+		let betaHeader = "";
+		globalThis.fetch = createJsonFetchMock(
+			{
+				five_hour: { utilization: 21.0, resets_at: fiveReset },
+				seven_day: { utilization: 90.0, resets_at: sevenReset },
+				extra_usage: { is_enabled: true, disabled_reason: null },
+			},
+			(request) => {
+				requestUrl = request.url;
+				betaHeader = request.headers.get("anthropic-beta") ?? "";
+			},
+		);
+
+		const usage = await provider.fetchUsage("token-xyz");
+
+		expect(requestUrl).toBe("https://api.anthropic.com/api/oauth/usage");
+		expect(betaHeader).toBe("oauth-2025-04-20");
+		expect(usage).toEqual({
+			fiveHourUtilization: 0.21,
+			fiveHourReset: Date.parse(fiveReset),
+			fiveHourStatus: "allowed", // 0.21 < 0.8
+			sevenDayUtilization: 0.9,
+			sevenDayReset: Date.parse(sevenReset),
+			sevenDayStatus: "allowed_warning", // 0.9 >= 0.8
+			overageStatus: "enabled",
+		});
+	});
+
+	it("fetchUsage returns null on a non-OK response", async () => {
+		globalThis.fetch = (async () =>
+			new Response("nope", { status: 401 })) as unknown as typeof fetch;
+		expect(await provider.fetchUsage("bad-token")).toBeNull();
+	});
 });

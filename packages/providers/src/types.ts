@@ -1,4 +1,4 @@
-import type { Account } from "@ccflare/types";
+import type { Account, AccountUtilizationUpdate } from "@ccflare/types";
 
 export interface TokenRefreshResult {
 	accessToken: string;
@@ -81,6 +81,14 @@ export interface Provider {
 	 * Check if the response is a streaming response
 	 */
 	isStreamingResponse?(response: Response): boolean;
+
+	/**
+	 * Fetch per-account quota utilization from a zero-cost account endpoint
+	 * (does NOT generate a billed message). Returns normalized utilization or
+	 * null if unsupported/unavailable. Only providers with such an endpoint
+	 * (e.g. claude-code) implement this.
+	 */
+	fetchUsage?(accessToken: string): Promise<AccountUtilizationUpdate | null>;
 }
 
 // OAuth-specific types

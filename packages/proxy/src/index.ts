@@ -12,6 +12,7 @@ export {
 	type ResponseHandlerOptions,
 } from "./response-handler";
 export { SessionStrategy } from "./strategies";
+export { startUsagePoller } from "./usage-poller";
 export type { UsageWorkerHealthSnapshot } from "./usage-worker";
 export {
 	handleWebSocketUpgradeRequest,

@@ -304,6 +304,31 @@ export class AccountRepository extends BaseRepository<Account> {
 		);
 	}
 
+	/**
+	 * Write only the window-utilization columns (5h/7d util+reset+status, overage),
+	 * leaving the rollup rate_limit_* columns untouched. Used by the zero-cost
+	 * usage poller, which refreshes quota for all accounts without a billed request.
+	 */
+	updateUtilization(accountId: string, util: AccountUtilizationUpdate): void {
+		this.run(
+			`UPDATE accounts SET
+				ratelimit_5h_utilization = ?, ratelimit_5h_reset = ?, ratelimit_5h_status = ?,
+				ratelimit_7d_utilization = ?, ratelimit_7d_reset = ?, ratelimit_7d_status = ?,
+				overage_status = ?
+			WHERE id = ?`,
+			[
+				util.fiveHourUtilization ?? null,
+				util.fiveHourReset ?? null,
+				util.fiveHourStatus ?? null,
+				util.sevenDayUtilization ?? null,
+				util.sevenDayReset ?? null,
+				util.sevenDayStatus ?? null,
+				util.overageStatus ?? null,
+				accountId,
+			],
+		);
+	}
+
 	pause(accountId: string): void {
 		this.run(`UPDATE accounts SET paused = 1 WHERE id = ?`, [accountId]);
 	}
