@@ -232,6 +232,11 @@ RETRY_ATTEMPTS=3                # Number of retry attempts (default: 3)
 RETRY_DELAY_MS=1000            # Initial retry delay in ms (default: 1000)
 RETRY_BACKOFF=2                # Exponential backoff multiplier (default: 2)
 
+# Account Balancing
+CCFLARE_LAST_RESORT_ACCOUNTS=   # Comma-separated last-resort account names (default: none)
+CF_USAGE_POLL_MS=60000          # Usage poll interval in ms (0 disables; default: 60000)
+CF_MAX_PAYLOAD_BYTES=2097152    # Per-request stored-payload cap in bytes (default: 2 MB)
+
 # Development
 LOG_LEVEL=info                  # Logging level (debug|info|warn|error)
 NODE_ENV=production            # Environment mode

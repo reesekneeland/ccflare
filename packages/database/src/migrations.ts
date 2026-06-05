@@ -94,6 +94,25 @@ function shouldMigrateRequestsTable(columns: TableInfoRow[]): boolean {
 	);
 }
 
+const ACCOUNT_UTILIZATION_COLUMNS = [
+	["ratelimit_5h_utilization", "REAL"],
+	["ratelimit_5h_reset", "INTEGER"],
+	["ratelimit_5h_status", "TEXT"],
+	["ratelimit_7d_utilization", "REAL"],
+	["ratelimit_7d_reset", "INTEGER"],
+	["ratelimit_7d_status", "TEXT"],
+	["overage_status", "TEXT"],
+] as const;
+
+function ensureAccountUtilizationColumns(db: Database): void {
+	const columns = getTableInfo(db, "accounts");
+	for (const [columnName, columnType] of ACCOUNT_UTILIZATION_COLUMNS) {
+		if (!hasColumn(columns, columnName)) {
+			db.run(`ALTER TABLE accounts ADD COLUMN ${columnName} ${columnType}`);
+		}
+	}
+}
+
 function ensureRequestLinkageColumns(db: Database): void {
 	const columns = getTableInfo(db, "requests");
 	const requestColumns = [
@@ -502,7 +521,14 @@ export function ensureSchema(db: Database): void {
 			paused INTEGER DEFAULT 0,
 			rate_limit_reset INTEGER,
 			rate_limit_status TEXT,
-			rate_limit_remaining INTEGER
+			rate_limit_remaining INTEGER,
+			ratelimit_5h_utilization REAL,
+			ratelimit_5h_reset INTEGER,
+			ratelimit_5h_status TEXT,
+			ratelimit_7d_utilization REAL,
+			ratelimit_7d_reset INTEGER,
+			ratelimit_7d_status TEXT,
+			overage_status TEXT
 		)
 	`);
 	ensureAccountsNameUniqueness(db);
@@ -576,6 +602,7 @@ export function runMigrations(db: Database): void {
 	}
 	ensureRequestLinkageColumns(db);
 	backfillRequestLinkageColumns(db);
+	ensureAccountUtilizationColumns(db);
 
 	db.run("DROP TABLE IF EXISTS agent_preferences");
 	db.run("DROP TABLE IF EXISTS oauth_sessions");

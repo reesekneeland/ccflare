@@ -116,11 +116,33 @@ export class AnthropicProvider extends BaseProvider {
 			const isRateLimited =
 				HARD_LIMIT_STATUSES.has(statusHeader || "") || response.status === 429;
 
+			// Window-specific telemetry (5h / 7d quota + overage). Present alongside
+			// the unified rollup on normal responses; absent on the 429 fallback below.
+			const num = (name: string): number | undefined => {
+				const v = response.headers.get(name);
+				if (v === null || v === "") return undefined;
+				const n = Number(v);
+				return Number.isFinite(n) ? n : undefined;
+			};
+			const ms = (seconds: number | undefined): number | undefined =>
+				seconds === undefined ? undefined : seconds * 1000;
+			const str = (name: string): string | undefined => {
+				const v = response.headers.get(name);
+				return v === null || v === "" ? undefined : v;
+			};
+
 			return {
 				isRateLimited,
 				resetTime,
 				statusHeader: statusHeader || undefined,
 				remaining,
+				fiveHourUtilization: num("anthropic-ratelimit-unified-5h-utilization"),
+				fiveHourReset: ms(num("anthropic-ratelimit-unified-5h-reset")),
+				fiveHourStatus: str("anthropic-ratelimit-unified-5h-status"),
+				sevenDayUtilization: num("anthropic-ratelimit-unified-7d-utilization"),
+				sevenDayReset: ms(num("anthropic-ratelimit-unified-7d-reset")),
+				sevenDayStatus: str("anthropic-ratelimit-unified-7d-status"),
+				overageStatus: str("anthropic-ratelimit-unified-overage-status"),
 			};
 		}
 

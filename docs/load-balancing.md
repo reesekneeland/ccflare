@@ -25,57 +25,51 @@ ccflare implements a session-based load balancing system to distribute requests 
 
 **Use Case**: Optimal for production environments where minimizing rate limits is crucial. Particularly effective for applications with sustained user sessions.
 
-**Implementation Details**:
-```typescript
-export class SessionStrategy implements LoadBalancingStrategy {
-    private sessionDurationMs: number;
-    private store: StrategyStore | null = null;
-    private log = new Logger("SessionStrategy");
+**Implementation Details** (`packages/proxy/src/strategies/index.ts`):
 
-    constructor(sessionDurationMs: number = TIME_CONSTANTS.SESSION_DURATION_DEFAULT) {
-        this.sessionDurationMs = sessionDurationMs;
-    }
+`SessionStrategy` is constructed with the session duration and an optional set of
+last-resort account names (`new SessionStrategy(sessionDurationMs, lastResortNames)`;
+the names default to the `CCFLARE_LAST_RESORT_ACCOUNTS` env var). `select()` works in
+two stages:
 
-    initialize(store: StrategyStore): void {
-        this.store = store;
-    }
+1. **Sticky session.** If an account holds the most recent session within the window
+   and is available, it is used exclusively (returned first, others as fallback) — so a
+   single account is burned down before the next is opened. The one exception is
+   *last-resort preemption* (below).
+2. **(Re)selection.** When no session is active (or the active one is rate-limited /
+   preempted), the available accounts are ordered by `prioritize()` and the first is
+   chosen for a fresh session.
 
-    select(accounts: Account[], _meta: RequestMeta): Account[] {
-        const now = Date.now();
-        
-        // Find account with most recent active session
-        let activeAccount: Account | null = null;
-        let mostRecentSessionStart = 0;
-        
-        for (const account of accounts) {
-            if (account.session_start && 
-                now - account.session_start < this.sessionDurationMs &&
-                account.session_start > mostRecentSessionStart) {
-                activeAccount = account;
-                mostRecentSessionStart = account.session_start;
-            }
-        }
-        
-        // Use active account if available
-        if (activeAccount && isAccountAvailable(activeAccount, now)) {
-            const others = accounts.filter(
-                a => a.id !== activeAccount.id && isAccountAvailable(a, now)
-            );
-            return [activeAccount, ...others]; // Active account first, others as fallback
-        }
-        
-        // No active session - start new one with first available account
-        const available = accounts.filter(a => isAccountAvailable(a, now));
-        if (available.length === 0) return [];
-        
-        const chosenAccount = available[0];
-        this.resetSessionIfExpired(chosenAccount);
-        
-        const others = available.filter(a => a.id !== chosenAccount.id);
-        return [chosenAccount, ...others];
-    }
-}
-```
+**Burn-down ordering** (`prioritize` / `compareBurnDown`): among available **preferred**
+(non-last-resort) accounts, order by:
+- **5-hour utilization, highest first** — finish the most-burned seat before opening the
+  next. A window whose reset has already passed counts as `0` (stale), and a never-seen
+  account (no observed utilization) sorts last.
+- **tie-break: soonest 7-day reset.**
+- **final tie-break: account name**, for deterministic ordering.
+
+**Last-resort accounts** (`CCFLARE_LAST_RESORT_ACCOUNTS`): accounts whose names are listed
+always sort **after** all preferred accounts, so they only serve traffic when every
+preferred seat is unavailable — intended for pay-per-use "extra usage" seats. If a
+last-resort account is holding the active session and any preferred account becomes
+available, the session is **preempted** onto the preferred account so overage isn't billed
+while normal quota exists.
+
+**Utilization data** comes from two sources, both writing the per-account 5h/7d columns:
+the `anthropic-ratelimit-unified-{5h,7d}-*` headers parsed off each proxied response, and
+a background **usage poller** (see [Usage polling](#usage-polling)) that refreshes every
+account from a zero-cost endpoint so idle accounts still have fresh data to rank on.
+
+## Usage polling
+
+To rank accounts by utilization the strategy needs current 5h/7d numbers for **all**
+accounts, but the response headers only refresh the account currently serving traffic. A
+background poller (`packages/proxy/src/usage-poller.ts`) closes that gap: every
+`CF_USAGE_POLL_MS` (default 60000ms; `0` disables) it fetches each non-paused account's
+utilization from the provider's **zero-cost** account endpoint
+(`ClaudeCodeProvider.fetchUsage` → `GET /api/oauth/usage` — no billed message) and persists
+it. It runs once at startup so the dashboard populates immediately, reuses the proxy's
+token-refresh path (dedup + backoff), and isolates per-account failures.
 
 **Characteristics**:
 - ✅ **Excellent Rate Limit Avoidance**: Minimizes account switching
@@ -101,6 +95,14 @@ LB_STRATEGY=session
 
 # Session duration in milliseconds (default: 18000000ms = 5 hours)
 SESSION_DURATION_MS=18000000
+
+# Comma-separated account names served only as a last resort (e.g. pay-per-use
+# "extra usage" seats). Default: none.
+CCFLARE_LAST_RESORT_ACCOUNTS=reese
+
+# Usage poller interval in ms (default: 60000; 0 disables). Refreshes every
+# account's 5h/7d quota from the zero-cost usage endpoint.
+CF_USAGE_POLL_MS=60000
 
 # Server port (default: 8080)
 PORT=8080

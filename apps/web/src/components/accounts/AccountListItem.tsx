@@ -12,6 +12,7 @@ import { ProviderBadge } from "../ProviderBadge";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { RateLimitProgress } from "./RateLimitProgress";
+import { UtilizationBars } from "./UtilizationBars";
 
 function getAuthMethodLabel(authMethod: string): string {
 	switch (authMethod) {
@@ -128,6 +129,14 @@ export function AccountListItem({
 			{account.rateLimitReset && (
 				<RateLimitProgress resetIso={account.rateLimitReset} />
 			)}
+			<UtilizationBars
+				util5h={account.utilization5h}
+				reset5h={account.reset5h}
+				status5h={account.status5h}
+				util7d={account.utilization7d}
+				reset7d={account.reset7d}
+				status7d={account.status7d}
+			/>
 		</div>
 	);
 }

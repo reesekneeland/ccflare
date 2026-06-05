@@ -37,6 +37,28 @@ export interface Account {
 	rate_limit_reset: number | null;
 	rate_limit_status: string | null;
 	rate_limit_remaining: number | null;
+	// Window-specific unified quota telemetry (Anthropic). Utilization is a 0..1
+	// fraction; resets are ms epoch. Null until the account has served a request.
+	ratelimit_5h_utilization: number | null;
+	ratelimit_5h_reset: number | null;
+	ratelimit_5h_status: string | null;
+	ratelimit_7d_utilization: number | null;
+	ratelimit_7d_reset: number | null;
+	ratelimit_7d_status: string | null;
+	overage_status: string | null;
+}
+
+// Window-specific quota telemetry passed from the proxy to the persistence layer.
+// Partial update: only defined (non-undefined) fields are written; absent fields
+// leave the existing DB value unchanged.
+export interface AccountUtilizationUpdate {
+	fiveHourUtilization?: number;
+	fiveHourReset?: number;
+	fiveHourStatus?: string;
+	sevenDayUtilization?: number;
+	sevenDayReset?: number;
+	sevenDayStatus?: string;
+	overageStatus?: string;
 }
 
 // Account creation types

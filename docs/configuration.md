@@ -104,6 +104,9 @@ The configuration file is stored at:
 | `PORT` | `port` | number | `PORT=3000` |
 | `DATA_RETENTION_DAYS` | `data_retention_days` | number | `DATA_RETENTION_DAYS=7` (payloads) |
 | `REQUEST_RETENTION_DAYS` | `request_retention_days` | number | `REQUEST_RETENTION_DAYS=365` (metadata) |
+| `CCFLARE_LAST_RESORT_ACCOUNTS` | - | string | `CCFLARE_LAST_RESORT_ACCOUNTS=reese,backup` (comma-separated last-resort account names; default none) |
+| `CF_USAGE_POLL_MS` | - | number | `CF_USAGE_POLL_MS=60000` (usage poll interval; `0` disables; default 60000) |
+| `CF_MAX_PAYLOAD_BYTES` | - | number | `CF_MAX_PAYLOAD_BYTES=65536` (per-request stored-payload cap; default 2097152) |
 | `ccflare_CONFIG_PATH` | - | string | `ccflare_CONFIG_PATH=/etc/ccflare.json` |
 
 ### Additional Environment Variables

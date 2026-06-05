@@ -1,4 +1,4 @@
-import type { Account } from "@ccflare/types";
+import type { Account, AccountUtilizationUpdate } from "@ccflare/types";
 import { type AccountRow, toAccount } from "../models/account-row";
 import { BaseRepository } from "./base.repository";
 
@@ -25,7 +25,9 @@ const accountSelectFields = `
 	rate_limited_until, session_start, session_request_count,
 	COALESCE(weight, 1) as weight,
 	COALESCE(paused, 0) as paused,
-	rate_limit_reset, rate_limit_status, rate_limit_remaining
+	rate_limit_reset, rate_limit_status, rate_limit_remaining,
+	ratelimit_5h_utilization, ratelimit_5h_reset, ratelimit_5h_status,
+	ratelimit_7d_utilization, ratelimit_7d_reset, ratelimit_7d_status, overage_status
 `;
 
 export class AccountRepository extends BaseRepository<Account> {
@@ -278,9 +280,48 @@ export class AccountRepository extends BaseRepository<Account> {
 		reset: number | null,
 		remaining?: number | null,
 	): void {
+		// Writes only the unified-rollup columns. Window utilization (5h/7d) is
+		// written separately via updateUtilization so a rollup-only response can't
+		// clobber values the usage poller populated for the other window.
 		this.run(
 			`UPDATE accounts SET rate_limit_status = ?, rate_limit_reset = ?, rate_limit_remaining = ? WHERE id = ?`,
 			[status, reset, remaining ?? null, accountId],
+		);
+	}
+
+	/**
+	 * Write only the window-utilization columns that are actually present in the
+	 * update (`undefined` fields are skipped, not nulled), leaving the rollup
+	 * rate_limit_* columns and any unreported window untouched. A partial source
+	 * — e.g. a response carrying only the overage header, or a usage payload
+	 * missing one window — therefore can't erase previously stored data.
+	 */
+	updateUtilization(accountId: string, util: AccountUtilizationUpdate): void {
+		const columnByField = [
+			["fiveHourUtilization", "ratelimit_5h_utilization"],
+			["fiveHourReset", "ratelimit_5h_reset"],
+			["fiveHourStatus", "ratelimit_5h_status"],
+			["sevenDayUtilization", "ratelimit_7d_utilization"],
+			["sevenDayReset", "ratelimit_7d_reset"],
+			["sevenDayStatus", "ratelimit_7d_status"],
+			["overageStatus", "overage_status"],
+		] as const;
+
+		const assignments: string[] = [];
+		const values: (string | number)[] = [];
+		for (const [field, column] of columnByField) {
+			const value = util[field];
+			if (value !== undefined) {
+				assignments.push(`${column} = ?`);
+				values.push(value);
+			}
+		}
+		if (assignments.length === 0) return;
+
+		values.push(accountId);
+		this.run(
+			`UPDATE accounts SET ${assignments.join(", ")} WHERE id = ?`,
+			values,
 		);
 	}
 

@@ -116,6 +116,49 @@ describe("AccountRepository", () => {
 		expect(repository.delete(created.id)).toBe(false);
 	});
 
+	it("updateUtilization writes only defined fields, preserving the other window", () => {
+		const created = repository.create({
+			name: "util-account",
+			provider: "claude-code",
+			auth_method: "oauth",
+			access_token: "tok",
+			refresh_token: "ref",
+		});
+
+		repository.updateUtilization(created.id, {
+			fiveHourUtilization: 0.5,
+			fiveHourReset: 1_000,
+			fiveHourStatus: "allowed",
+			sevenDayUtilization: 0.9,
+			sevenDayReset: 2_000,
+			sevenDayStatus: "allowed_warning",
+			overageStatus: "enabled",
+		});
+
+		// Partial update: only the 5h window reported — 7d + overage must survive.
+		repository.updateUtilization(created.id, {
+			fiveHourUtilization: 0.6,
+			fiveHourReset: 1_500,
+			fiveHourStatus: "allowed",
+		});
+
+		const account = repository.findById(created.id);
+		expect(account).toEqual(
+			expect.objectContaining({
+				ratelimit_5h_utilization: 0.6,
+				ratelimit_5h_reset: 1_500,
+				ratelimit_7d_utilization: 0.9,
+				ratelimit_7d_reset: 2_000,
+				ratelimit_7d_status: "allowed_warning",
+				overage_status: "enabled",
+			}),
+		);
+
+		// Empty update is a no-op, not a wipe.
+		repository.updateUtilization(created.id, {});
+		expect(repository.findById(created.id)).toEqual(account);
+	});
+
 	it("rejects duplicate account names", () => {
 		repository.create({
 			name: "duplicate-name",
