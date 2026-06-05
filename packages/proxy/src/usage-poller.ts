@@ -41,7 +41,11 @@ async function pollOnce(ctx: ProxyContext): Promise<void> {
 			if (!token) continue; // api-key accounts have no usage endpoint
 			const util = await provider.fetchUsage(token);
 			if (util) {
-				ctx.dbOps.updateAccountUtilization(account.id, util);
+				// Serialize through the async writer like every other DB write on
+				// the proxy path, so poller and request writes never race.
+				ctx.asyncWriter.enqueue(() =>
+					ctx.dbOps.updateAccountUtilization(account.id, util),
+				);
 			}
 		} catch (err) {
 			// One account's failure (e.g. refresh backoff) must not stop the rest.

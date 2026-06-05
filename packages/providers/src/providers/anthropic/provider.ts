@@ -126,8 +126,10 @@ export class AnthropicProvider extends BaseProvider {
 			};
 			const ms = (seconds: number | undefined): number | undefined =>
 				seconds === undefined ? undefined : seconds * 1000;
-			const str = (name: string): string | undefined =>
-				response.headers.get(name) ?? undefined;
+			const str = (name: string): string | undefined => {
+				const v = response.headers.get(name);
+				return v === null || v === "" ? undefined : v;
+			};
 
 			return {
 				isRateLimited,

@@ -37,7 +37,8 @@ export interface StartServerOptions {
 	withDashboard?: boolean;
 }
 
-function stopRetentionMaintenance(): void {
+/** Stop the periodic background jobs: retention maintenance + usage poller. */
+function stopBackgroundJobs(): void {
 	if (stopRetentionJob) {
 		stopRetentionJob();
 		stopRetentionJob = null;
@@ -78,7 +79,7 @@ async function stopServerRuntime(): Promise<void> {
 			errors.push(toError("Failed to stop Bun server", error));
 		}
 
-		stopRetentionMaintenance();
+		stopBackgroundJobs();
 
 		try {
 			await waitForProxyBackgroundTasks();

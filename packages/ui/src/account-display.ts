@@ -86,17 +86,6 @@ export function formatAccountRateLimitStatus(
 	return "OK";
 }
 
-/**
- * Format a 0..1 utilization fraction as a whole-percent string, or "—" when the
- * value is unknown (never observed for this account).
- */
-export function formatUtilizationPercent(
-	utilization: number | null | undefined,
-): string {
-	if (utilization == null) return "—";
-	return `${Math.round(utilization * 100)}%`;
-}
-
 export function formatAccountSessionInfo(
 	session:
 		| AccountSessionInfo

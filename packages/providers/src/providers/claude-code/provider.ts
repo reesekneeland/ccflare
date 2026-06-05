@@ -158,12 +158,13 @@ export class ClaudeCodeProvider extends AnthropicProvider {
 			sevenDayStatus: seven.status,
 			// Absent extra_usage means the overage state is unknown — leave it
 			// undefined (column untouched) rather than asserting "disabled".
+			// `||` (not `??`) so an empty-string reason also falls back.
 			overageStatus:
 				eu == null
 					? undefined
 					: eu.is_enabled
 						? "enabled"
-						: (eu.disabled_reason ?? "disabled"),
+						: eu.disabled_reason || "disabled",
 		};
 	}
 }
