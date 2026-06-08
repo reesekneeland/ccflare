@@ -442,6 +442,20 @@ describe("SessionStrategy", () => {
 			expect(onlyAcct.session_start).toBe(started);
 		});
 
+		it("does not 7d-block an account whose 7d reset is unknown (null) even at high util", () => {
+			const strategy = makeStrategy();
+			// util at the cap but reset unknown (e.g. first poll carried util, no
+			// reset) → must NOT hard-exclude; a real 429 would catch a genuinely
+			// maxed seat instead.
+			const unknownReset = createAccount("a", "unknown-reset", {
+				ratelimit_7d_utilization: 1,
+				ratelimit_7d_reset: null,
+			});
+			expect(strategy.select([unknownReset], meta).map((a) => a.name)).toEqual([
+				"unknown-reset",
+			]);
+		});
+
 		it("does not take the 7d-drop path for an account that is also rate-limited", () => {
 			const strategy = makeStrategy();
 			// Active account is rate-limited AND 7d-exhausted: the rate-limit path

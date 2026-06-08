@@ -62,14 +62,15 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	}
 
 	/**
-	 * Reset-aware "this quota window is fully consumed". A window whose reset has
-	 * already passed is stale (the fresh value just hasn't been observed yet), so
-	 * it is treated as not maxed. A never-seen window (null utilization) is likewise
-	 * not maxed — absence of data is not evidence of exhaustion. A known utilization
-	 * with no reset timestamp is judged on utilization alone (treated as the live
-	 * window), matching `effective5hUtil`; the next poll's utilization refreshes this
-	 * even if the reset stays absent, so a stale-high value does not persist once the
-	 * real window rolls over.
+	 * Reset-aware "this quota window is fully consumed", used for the extra-usage
+	 * seat's last-resort flip (`actsAsLastResort`). A window whose reset has already
+	 * passed is stale (the fresh value just hasn't been observed yet) → not maxed; a
+	 * never-seen window (null utilization) → not maxed. A known utilization with no
+	 * reset timestamp is treated as the live window and judged on utilization alone:
+	 * for the flip this is the conservative choice (it keeps a maxed extra-usage seat
+	 * in last-resort position rather than ranking it first and billing overage). The
+	 * exhaustion *block* uses a stricter check (`is7dExhausted`) so an unknown reset
+	 * never hard-excludes an account.
 	 */
 	private isWindowMaxed(
 		util: number | null,
@@ -85,16 +86,18 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	 * A flat-rate seat whose 7-day quota is exhausted cannot serve until the
 	 * window resets, so it drops out of selection entirely. The extra-usage seat
 	 * is exempt — its overage lets it keep serving past the weekly cap.
+	 *
+	 * Blocking requires a known, unexpired reset: a null/unknown 7d reset must NOT
+	 * hard-exclude an account (e.g. a freshly-added seat whose first usage poll
+	 * carried a utilization but no reset timestamp), which would strand it out of
+	 * selection indefinitely. A genuinely-maxed seat with an unknown reset is still
+	 * caught by the provider's 429 → `rate_limited_until` path instead.
 	 */
 	private is7dExhausted(account: Account, now: number): boolean {
-		return (
-			!this.isExtraUsageSeat(account) &&
-			this.isWindowMaxed(
-				account.ratelimit_7d_utilization,
-				account.ratelimit_7d_reset,
-				now,
-			)
-		);
+		if (this.isExtraUsageSeat(account)) return false;
+		const util = account.ratelimit_7d_utilization;
+		const reset = account.ratelimit_7d_reset;
+		return util != null && reset != null && now < reset && util >= MAX_UTIL;
 	}
 
 	/**
@@ -264,7 +267,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 			// instead). Record it so the replacement gets a forced fresh session
 			// below, moving stickiness off the exhausted account; otherwise it keeps
 			// the most-recent session_start and is re-selected every request until
-			// its 5h window expires.
+			// its 7-day window resets.
 			droppedAccount = activeAccount;
 		}
 
