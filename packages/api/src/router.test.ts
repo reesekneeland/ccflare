@@ -567,6 +567,7 @@ describe("APIRouter", () => {
 				startedAt: string | null;
 				requestCount: number;
 			};
+			selection: { id: string; rank: number | null; status: string } | null;
 		}>;
 		expect(accounts).toEqual([
 			{
@@ -602,8 +603,46 @@ describe("APIRouter", () => {
 					startedAt: null,
 					requestCount: 0,
 				},
+				selection: null,
 			},
 		]);
+	});
+
+	it("attaches selection order from the strategy when one is provided", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "ccflare-http-api-"));
+		tempDirs.push(tempDir);
+		const config = new Config(join(tempDir, "config.json"));
+		DatabaseFactory.reset();
+		DatabaseFactory.initialize(join(tempDir, "ccflare.db"));
+		const dbOps = DatabaseFactory.getInstance();
+		const router = new APIRouter({
+			config,
+			dbOps,
+			getProviders: () => ["anthropic"],
+			getStrategy: () => ({
+				select: () => [],
+				previewSelectionOrder: (accts) =>
+					accts.map((a, i) => ({
+						id: a.id,
+						rank: i + 1,
+						status: "next" as const,
+					})),
+			}),
+		});
+
+		const { accountId } = await createApiKeyAccount(router, {
+			name: "ordered",
+		});
+		const res = await apiRequest(router, "GET", "/api/accounts");
+		const accounts = (await res.json()) as Array<{
+			id: string;
+			selection: { id: string; rank: number | null; status: string } | null;
+		}>;
+		expect(accounts.find((a) => a.id === accountId)?.selection).toEqual({
+			id: accountId,
+			rank: 1,
+			status: "next",
+		});
 	});
 
 	it("deletes accounts by id", async () => {

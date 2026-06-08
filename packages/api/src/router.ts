@@ -82,7 +82,8 @@ export class APIRouter {
 	}
 
 	private registerHandlers(): void {
-		const { config, dbOps, getProviders, getRuntimeHealth } = this.context;
+		const { config, dbOps, getProviders, getRuntimeHealth, getStrategy } =
+			this.context;
 
 		// Create handlers (pre-instantiated, not created per-request)
 		const healthHandler = createHealthHandler(
@@ -93,7 +94,7 @@ export class APIRouter {
 		);
 		const statsHandler = createStatsHandler(dbOps);
 		const statsResetHandler = createStatsResetHandler(dbOps);
-		const accountsHandler = createAccountsListHandler(dbOps);
+		const accountsHandler = createAccountsListHandler(dbOps, getStrategy);
 		const accountAddHandler = createAccountAddHandler(dbOps, config);
 		const requestsSummaryHandler = createRequestsSummaryHandler(dbOps);
 		const requestsDetailHandler = createRequestsDetailHandler(dbOps);

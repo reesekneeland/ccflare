@@ -3,8 +3,14 @@ import type { DatabaseOperations } from "@ccflare/database";
 import type {
 	AccountProvider,
 	AuthMethod,
+	LoadBalancingStrategy,
 	RuntimeHealth,
+	SelectionOrderEntry,
 } from "@ccflare/types";
+
+// Re-exported so dashboard/TUI consumers of AccountResponse can type the
+// selection field without importing @ccflare/types directly.
+export type { SelectionOrderEntry, SelectionStatus } from "@ccflare/types";
 
 export interface AccountResponse {
 	id: string;
@@ -41,6 +47,9 @@ export interface AccountResponse {
 		startedAt: string | null;
 		requestCount: number;
 	};
+	// The account's place in the strategy's activation order (rank + reason).
+	// Null when the strategy can't provide an ordering (e.g. unavailable).
+	selection: SelectionOrderEntry | null;
 }
 
 export interface APIContext {
@@ -48,4 +57,7 @@ export interface APIContext {
 	dbOps: DatabaseOperations;
 	getProviders: () => string[];
 	getRuntimeHealth?: () => RuntimeHealth;
+	// Live load-balancing strategy, for read-only selection-order previews on the
+	// accounts endpoint. Optional so the router stays usable without it.
+	getStrategy?: () => LoadBalancingStrategy;
 }

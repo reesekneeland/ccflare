@@ -25,6 +25,7 @@ import {
 	getProviderAuthMethod,
 	isAccountProvider,
 	isAuthMethod,
+	type LoadBalancingStrategy,
 	type MutationResult,
 } from "@ccflare/types";
 import { serializeAccount } from "../serializers/account";
@@ -94,13 +95,24 @@ function isDuplicateAccountNameError(error: unknown): boolean {
 /**
  * Create an accounts list handler
  */
-export function createAccountsListHandler(dbOps: DatabaseOperations) {
+export function createAccountsListHandler(
+	dbOps: DatabaseOperations,
+	getStrategy?: () => LoadBalancingStrategy,
+) {
 	return (): Response => {
 		const now = Date.now();
-		const response: AccountResponse[] = dbOps
-			.getAllAccounts()
+		const accounts = dbOps.getAllAccounts();
+
+		// Ask the live strategy for the activation order (read-only; mutates
+		// nothing). Guarded: the strategy or the method may be absent.
+		const order = getStrategy?.()?.previewSelectionOrder?.(accounts, now);
+		const selectionById = new Map(order?.map((entry) => [entry.id, entry]));
+
+		const response: AccountResponse[] = accounts
 			.sort((left, right) => right.request_count - left.request_count)
-			.map((account) => serializeAccount(account, now));
+			.map((account) =>
+				serializeAccount(account, now, selectionById.get(account.id) ?? null),
+			);
 
 		return jsonResponse(response);
 	};

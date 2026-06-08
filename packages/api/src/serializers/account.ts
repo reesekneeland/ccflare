@@ -3,12 +3,14 @@ import {
 	getAccountRateLimitInfo,
 	getAccountSessionInfo,
 	getAccountTokenStatus,
+	type SelectionOrderEntry,
 } from "@ccflare/types";
 import type { AccountResponse } from "../types";
 
 export function serializeAccount(
 	account: Account,
 	now: number = Date.now(),
+	selection: SelectionOrderEntry | null = null,
 ): AccountResponse {
 	const rateLimit = getAccountRateLimitInfo(account, now);
 	const session = getAccountSessionInfo(account);
@@ -58,5 +60,6 @@ export function serializeAccount(
 				: null,
 			requestCount: session.requestCount,
 		},
+		selection,
 	};
 }

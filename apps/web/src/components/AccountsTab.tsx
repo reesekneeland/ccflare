@@ -7,6 +7,7 @@ import {
 	AccountList,
 	DeleteConfirmationDialog,
 	RenameAccountDialog,
+	SwitchingOrder,
 } from "./accounts";
 import { Button } from "./ui/button";
 import {
@@ -90,6 +91,8 @@ export function AccountsTab() {
 					</CardContent>
 				</Card>
 			)}
+
+			<SwitchingOrder accounts={model.accounts} />
 
 			<Card>
 				<CardHeader>

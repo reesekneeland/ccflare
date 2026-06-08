@@ -202,10 +202,21 @@ List all configured accounts with their current status.
       "active": true,
       "startedAt": "2024-12-17T10:00:00.000Z",
       "requestCount": 25
+    },
+    "selection": {
+      "id": "uuid-here",
+      "rank": 1,
+      "status": "active"
     }
   }
 ]
 ```
+
+`selection` is the account's place in the strategy's activation order (the same
+ordering `select()` uses), for display: `rank` is its 1-based position (null when
+the account is excluded), and `status` is one of `active`, `next`, `candidate`,
+`last-resort`, `blocked-7d`, `rate-limited`, or `paused`. It is `null` if the
+running strategy can't provide an ordering.
 
 **Example:**
 ```bash

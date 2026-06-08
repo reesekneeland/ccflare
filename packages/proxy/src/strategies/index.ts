@@ -4,6 +4,8 @@ import type {
 	Account,
 	LoadBalancingStrategy,
 	RequestMeta,
+	SelectionOrderEntry,
+	SelectionStatus,
 	StrategyStore,
 } from "@ccflare/types";
 
@@ -205,74 +207,84 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		}
 	}
 
-	select(accounts: Account[], _meta: RequestMeta): Account[] {
-		const now = Date.now();
-
-		// Find account with active session (most recent session_start within window)
-		let activeAccount: Account | null = null;
-		let mostRecentSessionStart = 0;
-
+	/**
+	 * Find the most-recent in-window session holder and decide whether it keeps
+	 * the session. `continues` is false when there is no active account, when the
+	 * active account is no longer selectable (rate-limited / 7d-exhausted), or
+	 * when it is an extra-usage seat acting as last resort that should be
+	 * preempted because a normally-balanced account is available. Shared by
+	 * `select()` and `previewSelectionOrder()` so the two can't diverge.
+	 */
+	private resolveActive(
+		accounts: Account[],
+		now: number,
+	): { active: Account | null; continues: boolean } {
+		let active: Account | null = null;
+		let mostRecent = 0;
 		for (const account of accounts) {
 			if (
 				account.session_start &&
 				now - account.session_start < this.sessionDurationMs &&
-				account.session_start > mostRecentSessionStart
+				account.session_start > mostRecent
 			) {
-				activeAccount = account;
-				mostRecentSessionStart = account.session_start;
+				active = account;
+				mostRecent = account.session_start;
 			}
 		}
+		if (!active || !this.isSelectable(active, now)) {
+			return { active, continues: false };
+		}
+		const preempt =
+			this.actsAsLastResort(active, now) &&
+			accounts.some(
+				(a) =>
+					a.id !== active.id &&
+					!this.actsAsLastResort(a, now) &&
+					this.isSelectable(a, now),
+			);
+		return { active, continues: !preempt };
+	}
 
-		// If we have an active account and it's selectable, use it exclusively —
-		// unless it's currently acting as a last resort (an extra-usage seat whose
-		// 5h window has filled) and a normally-balanced account has become
-		// available, in which case the session is preempted off it so we stop
-		// burning overage.
+	select(accounts: Account[], _meta: RequestMeta): Account[] {
+		const now = Date.now();
+		const { active, continues } = this.resolveActive(accounts, now);
+
+		// A selectable, non-preempted active account keeps the session exclusively.
+		if (active && continues) {
+			// Reset session if expired (shouldn't happen but just in case)
+			this.resetSessionIfExpired(active);
+			this.log.info(
+				`Continuing session for account ${active.name} (${active.session_request_count} requests in session)`,
+			);
+			const others = this.prioritize(
+				accounts.filter((a) => a.id !== active.id && this.isSelectable(a, now)),
+				now,
+			);
+			return [active, ...others];
+		}
+
+		// Active account is leaving the session. Distinguish the two cases that
+		// must force a fresh session on the replacement (so stickiness moves off
+		// the account we left): a preempted extra-usage seat in overage, or a
+		// flat-rate account whose 7-day quota filled mid-session.
 		let preempt = false;
 		let droppedAccount: Account | null = null;
-		if (activeAccount && this.isSelectable(activeAccount, now)) {
-			preempt =
-				this.actsAsLastResort(activeAccount, now) &&
-				accounts.some(
-					(a) =>
-						a.id !== activeAccount.id &&
-						!this.actsAsLastResort(a, now) &&
-						this.isSelectable(a, now),
-				);
-			if (!preempt) {
-				// Reset session if expired (shouldn't happen but just in case)
-				this.resetSessionIfExpired(activeAccount);
-				this.log.info(
-					`Continuing session for account ${activeAccount.name} (${activeAccount.session_request_count} requests in session)`,
-				);
-				// Return active account first, then others as fallback
-				const others = this.prioritize(
-					accounts.filter(
-						(a) => a.id !== activeAccount.id && this.isSelectable(a, now),
-					),
-					now,
-				);
-				return [activeAccount, ...others];
-			}
+		if (active && this.isSelectable(active, now)) {
+			// Selectable but not continuing → it was preempted (an extra-usage seat
+			// acting as last resort while a normally-balanced account is available).
+			preempt = true;
 			this.log.info(
-				`Preempting overage session on account ${activeAccount.name}: a normally-balanced account is available`,
+				`Preempting overage session on account ${active.name}: a normally-balanced account is available`,
 			);
 		} else if (
-			activeAccount &&
-			isAccountAvailable(activeAccount, now) &&
-			this.is7dExhausted(activeAccount, now)
+			active &&
+			isAccountAvailable(active, now) &&
+			this.is7dExhausted(active, now)
 		) {
-			// The active account's 7-day quota filled mid-session (it is otherwise
-			// available — a rate-limited account falls through the normal path
-			// instead). Record it so the replacement gets a forced fresh session
-			// below, moving stickiness off the exhausted account; otherwise it keeps
-			// the most-recent session_start and is re-selected every request until
-			// its 7-day window resets.
-			droppedAccount = activeAccount;
+			droppedAccount = active;
 		}
 
-		// No active session, active account is unselectable, or an overage
-		// session was preempted. Filter selectable accounts, preferred first.
+		// Filter selectable accounts, preferred first.
 		const available = this.prioritize(
 			accounts.filter((a) => this.isSelectable(a, now)),
 			now,
@@ -285,9 +297,8 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		if (preempt || droppedAccount) {
 			// Force a fresh session even if this account has an unexpired one;
 			// its session_start must become the most recent so stickiness moves
-			// off the account we just left (an extra-usage seat in overage, or a
-			// 7d-exhausted account) on subsequent requests. The 7d-drop is logged
-			// here — only once a replacement is actually chosen — so it can't
+			// off the account we just left on subsequent requests. The 7d-drop is
+			// logged here — only once a replacement is actually chosen — so it can't
 			// re-fire every request when no replacement is available.
 			if (droppedAccount) {
 				this.log.info(
@@ -303,5 +314,73 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		// Return chosen account first, then others as fallback
 		const others = available.filter((a) => a.id !== chosenAccount.id);
 		return [chosenAccount, ...others];
+	}
+
+	/**
+	 * Read-only twin of `select()` for display: classify every account with its
+	 * activation rank and the reason for its place, without mutating session
+	 * state. The ordered (rank-bearing) entries are exactly the candidate list
+	 * `select()` would return; excluded accounts get a null rank and a reason.
+	 */
+	previewSelectionOrder(
+		accounts: Account[],
+		now: number = Date.now(),
+	): SelectionOrderEntry[] {
+		const { active, continues } = this.resolveActive(accounts, now);
+		const hasActive = !!(active && continues);
+		const selectable = accounts.filter((a) => this.isSelectable(a, now));
+
+		const ordered =
+			active && continues
+				? [
+						active,
+						...this.prioritize(
+							selectable.filter((a) => a.id !== active.id),
+							now,
+						),
+					]
+				: this.prioritize(selectable, now);
+
+		const entries: SelectionOrderEntry[] = ordered.map((account, index) => ({
+			id: account.id,
+			rank: index + 1,
+			status: this.classifySelectable(account, index, hasActive, now),
+		}));
+
+		const orderedIds = new Set(ordered.map((a) => a.id));
+		for (const account of accounts) {
+			if (orderedIds.has(account.id)) continue;
+			entries.push({
+				id: account.id,
+				rank: null,
+				status: this.excludedStatus(account, now),
+			});
+		}
+		return entries;
+	}
+
+	/** Status for an account that is in the activation order. */
+	private classifySelectable(
+		account: Account,
+		index: number,
+		hasActive: boolean,
+		now: number,
+	): SelectionStatus {
+		// The continuing session leads, whatever kind of seat it is.
+		if (index === 0 && hasActive) return "active";
+		// An extra-usage seat at its cap only ever serves as a last resort.
+		if (this.actsAsLastResort(account, now)) return "last-resort";
+		// "next" = the first non-active selectable seat.
+		if (index === (hasActive ? 1 : 0)) return "next";
+		return "candidate";
+	}
+
+	/** Status for an account excluded from the activation order. */
+	private excludedStatus(account: Account, now: number): SelectionStatus {
+		if (account.paused) return "paused";
+		if (!isAccountAvailable(account, now)) return "rate-limited";
+		if (this.is7dExhausted(account, now)) return "blocked-7d";
+		// Defensive: a non-selectable account always matches one of the above.
+		return "candidate";
 	}
 }

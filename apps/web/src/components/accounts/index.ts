@@ -4,3 +4,4 @@ export { AccountListItem } from "./AccountListItem";
 export { DeleteConfirmationDialog } from "./DeleteConfirmationDialog";
 export { RateLimitProgress } from "./RateLimitProgress";
 export { RenameAccountDialog } from "./RenameAccountDialog";
+export { SwitchingOrder } from "./SwitchingOrder";

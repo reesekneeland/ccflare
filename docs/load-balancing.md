@@ -86,6 +86,18 @@ utilization from the provider's **zero-cost** account endpoint
 it. It runs once at startup so the dashboard populates immediately, reuses the proxy's
 token-refresh path (dedup + backoff), and isolates per-account failures.
 
+## Switching order (dashboard)
+
+The Accounts page shows a **"Switching order"** panel: the live activation order and the
+reason for each account's place. It is sourced from `SessionStrategy.previewSelectionOrder()`
+— a **read-only twin of `select()`** that classifies every account without mutating session
+state, so the display can't drift from the real selection logic (both share the
+`resolveActive` / `prioritize` helpers). Each account in `GET /api/accounts` carries a
+`selection { rank, status }` field; the API obtains the ordering from the live strategy via
+an injected getter (no extra endpoint). Statuses: `active` (serving now), `next` (activated
+next), `candidate` (in burn-down order), `last-resort` (extra-usage seat in overage),
+`blocked-7d` / `rate-limited` / `paused` (excluded, rank null).
+
 **Characteristics**:
 - ✅ **Excellent Rate Limit Avoidance**: Minimizes account switching
 - ✅ **Predictable Behavior**: Consistent account usage patterns

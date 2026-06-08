@@ -93,20 +93,9 @@ export function bootstrapRuntime(
 	container.registerInstance(SERVICE_KEYS.PricingLogger, pricingLogger);
 	setPricingLogger(pricingLogger);
 
-	const apiRouter = new APIRouter({
-		config,
-		dbOps,
-		getProviders: () => providerRegistry.listProviders(),
-		getRuntimeHealth: () => ({
-			asyncWriter: {
-				healthy: asyncWriter.isHealthy(),
-				failureCount: asyncWriter.getFailureCount(),
-				queuedJobs: asyncWriter.getQueueSize(),
-			},
-			usageWorker: getUsageWorkerHealth(),
-		}),
-	});
-
+	// Build the strategy + proxy context first so the API router can expose the
+	// live strategy's selection-order preview. Hot reload swaps
+	// proxyContext.strategy, so the getter must read it dynamically.
 	const strategy = new SessionStrategy(runtimeConfig.sessionDurationMs);
 	strategy.initialize(dbOps);
 
@@ -119,6 +108,21 @@ export function bootstrapRuntime(
 		asyncWriter,
 		usageWorker: getUsageWorker(),
 	};
+
+	const apiRouter = new APIRouter({
+		config,
+		dbOps,
+		getProviders: () => providerRegistry.listProviders(),
+		getRuntimeHealth: () => ({
+			asyncWriter: {
+				healthy: asyncWriter.isHealthy(),
+				failureCount: asyncWriter.getFailureCount(),
+				queuedJobs: asyncWriter.getQueueSize(),
+			},
+			usageWorker: getUsageWorkerHealth(),
+		}),
+		getStrategy: () => proxyContext.strategy,
+	});
 
 	wireStrategyHotReload(config, log, dbOps, proxyContext, runtimeConfig);
 

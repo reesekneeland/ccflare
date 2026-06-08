@@ -579,4 +579,171 @@ describe("SessionStrategy", () => {
 			expect(strategy.select([reese, rek], meta)[0].name).toBe("reese");
 		});
 	});
+
+	describe("previewSelectionOrder", () => {
+		const future = Date.now() + 60 * 60 * 1000;
+
+		// name -> entry, for readable assertions.
+		function order(strategy: SessionStrategy, accounts: Account[]) {
+			const entries = strategy.previewSelectionOrder(accounts);
+			const byId = new Map(entries.map((e) => [e.id, e]));
+			return new Map(accounts.map((a) => [a.name, byId.get(a.id)]));
+		}
+
+		it("leads with the continuing active session, then the next seat", () => {
+			const strategy = makeStrategy();
+			const act = createAccount("a", "act", {
+				session_start: Date.now() - 1000,
+			});
+			const cand = createAccount("b", "cand", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+			});
+
+			const o = order(strategy, [act, cand]);
+			expect(o.get("act")).toMatchObject({ rank: 1, status: "active" });
+			expect(o.get("cand")).toMatchObject({ rank: 2, status: "next" });
+		});
+
+		it("ranks candidates by burn-down (highest 5h util first)", () => {
+			const strategy = makeStrategy();
+			const hi = createAccount("a", "hi", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+			const mid = createAccount("b", "mid", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+			});
+			const lo = createAccount("c", "lo", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			const o = order(strategy, [lo, hi, mid]);
+			expect(o.get("hi")).toMatchObject({ rank: 1, status: "next" });
+			expect(o.get("mid")).toMatchObject({ rank: 2, status: "candidate" });
+			expect(o.get("lo")).toMatchObject({ rank: 3, status: "candidate" });
+		});
+
+		it("treats an extra-usage seat under its cap as a normal candidate", () => {
+			const strategy = makeStrategy(["reese"]);
+			const reese = createAccount("a", "reese", {
+				ratelimit_5h_utilization: 0.9,
+				ratelimit_5h_reset: future,
+			});
+			const rek = createAccount("b", "rek", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			const o = order(strategy, [reese, rek]);
+			// Under cap, reese ranks normally (higher burn-down) → next, not last.
+			expect(o.get("reese")).toMatchObject({ rank: 1, status: "next" });
+			expect(o.get("rek")).toMatchObject({ rank: 2, status: "candidate" });
+		});
+
+		it("marks an extra-usage seat at its cap as last-resort and trailing", () => {
+			const strategy = makeStrategy(["reese"]);
+			const reese = createAccount("a", "reese", {
+				ratelimit_5h_utilization: 1,
+				ratelimit_5h_reset: future,
+			});
+			const rek = createAccount("b", "rek", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			const o = order(strategy, [reese, rek]);
+			expect(o.get("rek")).toMatchObject({ rank: 1, status: "next" });
+			expect(o.get("reese")).toMatchObject({ rank: 2, status: "last-resort" });
+		});
+
+		it("shows a preempted extra-usage session as last-resort behind the next seat", () => {
+			const strategy = makeStrategy(["reese"]);
+			const reese = createAccount("a", "reese", {
+				session_start: Date.now() - 1000,
+				ratelimit_5h_utilization: 1,
+				ratelimit_5h_reset: future,
+			});
+			const rek = createAccount("b", "rek", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			const o = order(strategy, [reese, rek]);
+			expect(o.get("rek")).toMatchObject({ rank: 1, status: "next" });
+			expect(o.get("reese")).toMatchObject({ rank: 2, status: "last-resort" });
+		});
+
+		it("excludes blocked / rate-limited / paused accounts with a null rank", () => {
+			const strategy = makeStrategy();
+			const ok = createAccount("a", "ok", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+			const blocked = createAccount("b", "blocked", {
+				ratelimit_7d_utilization: 1,
+				ratelimit_7d_reset: future,
+			});
+			const limited = createAccount("c", "limited", {
+				rate_limited_until: Date.now() + 60_000,
+			});
+			const paused = createAccount("d", "paused", { paused: true });
+
+			const o = order(strategy, [ok, blocked, limited, paused]);
+			expect(o.get("ok")).toMatchObject({ rank: 1, status: "next" });
+			expect(o.get("blocked")).toMatchObject({
+				rank: null,
+				status: "blocked-7d",
+			});
+			expect(o.get("limited")).toMatchObject({
+				rank: null,
+				status: "rate-limited",
+			});
+			expect(o.get("paused")).toMatchObject({ rank: null, status: "paused" });
+		});
+
+		it("returns an entry for every account", () => {
+			const strategy = makeStrategy();
+			const accounts = [
+				createAccount("a", "a"),
+				createAccount("b", "b", { paused: true }),
+			];
+			expect(strategy.previewSelectionOrder(accounts)).toHaveLength(2);
+		});
+
+		it("ranked order matches what select() would return (anti-drift)", () => {
+			const strategy = makeStrategy(["reese"]);
+			const accounts = [
+				createAccount("a", "reese", {
+					ratelimit_5h_utilization: 1,
+					ratelimit_5h_reset: future,
+				}),
+				createAccount("b", "hi", {
+					ratelimit_5h_utilization: 0.9,
+					ratelimit_5h_reset: future,
+				}),
+				createAccount("c", "lo", {
+					ratelimit_5h_utilization: 0.3,
+					ratelimit_5h_reset: future,
+				}),
+				createAccount("d", "blocked", {
+					ratelimit_7d_utilization: 1,
+					ratelimit_7d_reset: future,
+				}),
+			];
+
+			// preview() does not mutate, so capture it first, then run select().
+			const entries = strategy.previewSelectionOrder(accounts);
+			const nameById = new Map(accounts.map((a) => [a.id, a.name]));
+			const rankedNames = entries
+				.filter((e) => e.rank != null)
+				.sort((x, y) => (x.rank ?? 0) - (y.rank ?? 0))
+				.map((e) => nameById.get(e.id));
+
+			const selectedNames = strategy.select(accounts, meta).map((a) => a.name);
+			expect(rankedNames).toEqual(selectedNames);
+		});
+	});
 });
