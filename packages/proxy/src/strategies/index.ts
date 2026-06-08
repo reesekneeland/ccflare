@@ -16,7 +16,7 @@ import type {
  * frees up. They are also exempt from the 7-day exhaustion block (overage lets
  * them keep serving past the weekly cap).
  */
-const LAST_RESORT_ENV = "CCFLARE_LAST_RESORT_ACCOUNTS";
+const EXTRA_USAGE_SEATS_ENV = "CCFLARE_LAST_RESORT_ACCOUNTS";
 
 /**
  * Utilization fraction (0–1) at or above which a quota window is treated as
@@ -40,7 +40,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		this.sessionDurationMs = sessionDurationMs;
 		this.extraUsageSeats = new Set(
 			extraUsageSeats ??
-				(process.env[LAST_RESORT_ENV] ?? "")
+				(process.env[EXTRA_USAGE_SEATS_ENV] ?? "")
 					.split(",")
 					.map((name) => name.trim())
 					.filter(Boolean),
@@ -226,7 +226,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		// available, in which case the session is preempted off it so we stop
 		// burning overage.
 		let preempt = false;
-		let droppedSession = false;
+		let droppedAccount: Account | null = null;
 		if (activeAccount && this.isSelectable(activeAccount, now)) {
 			preempt =
 				this.actsAsLastResort(activeAccount, now) &&
@@ -254,17 +254,18 @@ export class SessionStrategy implements LoadBalancingStrategy {
 			this.log.info(
 				`Preempting overage session on account ${activeAccount.name}: a normally-balanced account is available`,
 			);
-		} else if (activeAccount && this.is7dExhausted(activeAccount, now)) {
-			// The active account's 7-day quota filled mid-session, so it is no
-			// longer selectable and traffic falls over to another account. Force a
-			// fresh session on the replacement (like the preempt path) so stickiness
-			// moves off the exhausted account — otherwise it keeps the most-recent
-			// session_start and re-enters this branch (and re-logs) every request
-			// until its 5h window expires.
-			droppedSession = true;
-			this.log.info(
-				`Dropping 7d-exhausted session on account ${activeAccount.name}: waiting for the 7-day window to reset`,
-			);
+		} else if (
+			activeAccount &&
+			isAccountAvailable(activeAccount, now) &&
+			this.is7dExhausted(activeAccount, now)
+		) {
+			// The active account's 7-day quota filled mid-session (it is otherwise
+			// available — a rate-limited account falls through the normal path
+			// instead). Record it so the replacement gets a forced fresh session
+			// below, moving stickiness off the exhausted account; otherwise it keeps
+			// the most-recent session_start and is re-selected every request until
+			// its 5h window expires.
+			droppedAccount = activeAccount;
 		}
 
 		// No active session, active account is unselectable, or an overage
@@ -278,11 +279,18 @@ export class SessionStrategy implements LoadBalancingStrategy {
 
 		// Pick the first available account and start a new session with it
 		const chosenAccount = available[0];
-		if (preempt || droppedSession) {
+		if (preempt || droppedAccount) {
 			// Force a fresh session even if this account has an unexpired one;
 			// its session_start must become the most recent so stickiness moves
 			// off the account we just left (an extra-usage seat in overage, or a
-			// 7d-exhausted account) on subsequent requests.
+			// 7d-exhausted account) on subsequent requests. The 7d-drop is logged
+			// here — only once a replacement is actually chosen — so it can't
+			// re-fire every request when no replacement is available.
+			if (droppedAccount) {
+				this.log.info(
+					`Dropping 7d-exhausted session on account ${droppedAccount.name}: switching to ${chosenAccount.name} until the 7-day window resets`,
+				);
+			}
 			this.log.info(`Starting new session for account ${chosenAccount.name}`);
 			this.startNewSession(chosenAccount, now);
 		} else {

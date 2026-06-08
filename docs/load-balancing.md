@@ -188,7 +188,7 @@ const providerAccounts = allAccounts.filter(
 - Accounts are first filtered by provider compatibility
 - Only accounts matching the current provider or with null provider are considered
 
-### 2. Availability Check
+### 2. Selectability Check
 ```typescript
 // From core/strategy.ts
 export function isAccountAvailable(account: Account, now = Date.now()): boolean {
@@ -198,17 +198,25 @@ export function isAccountAvailable(account: Account, now = Date.now()): boolean 
     );
 }
 ```
+The strategy gates on `isSelectable` = `isAccountAvailable && !is7dExhausted`:
 - Paused accounts are excluded
 - Rate-limited accounts are excluded if their rate limit hasn't expired
+- Flat-rate accounts whose **7-day** utilization is at/above `MAX_UTIL` (0.99) are
+  excluded until that window resets (extra-usage seats are exempt — see above)
 
 ### 3. Session Management
 The SessionStrategy manages account sessions through the following process:
 
 1. **Active Session Search**: Finds the account with the most recent active session
-2. **Session Validation**: Checks if the session is within the configured duration
+2. **Selectability Validation**: Checks the active account is still selectable and its
+   session is within the configured duration. If it is an extra-usage seat that has
+   crossed its 5h cap and a normally-balanced account is available, the session is
+   **preempted**; if it is a flat-rate account whose 7-day quota filled mid-session, the
+   session is **dropped** and a fresh one is forced on the replacement.
 3. **Account Ordering**: Returns accounts in priority order:
-   - Active session account (if available) comes first
-   - Other available accounts follow as fallback options
+   - Active session account (if still selectable) comes first
+   - Other selectable accounts follow in burn-down order, extra-usage seats acting as
+     last resort trailing
 
 ### 4. Session Reset
 Sessions are reset when:

@@ -425,6 +425,40 @@ describe("SessionStrategy", () => {
 			expect(strategy.select([sticky, fresh], meta)[0].name).toBe("fresh");
 			expect(fresh.session_start).toBeGreaterThan(sticky.session_start ?? 0);
 		});
+
+		it("returns empty (and does not advance its session) when the only account is 7d-exhausted", () => {
+			const strategy = makeStrategy();
+			const started = Date.now() - 1000;
+			const onlyAcct = createAccount("a", "only", {
+				session_start: started,
+				ratelimit_7d_utilization: 1,
+				ratelimit_7d_reset: future,
+			});
+
+			// No selectable replacement → empty result, and the dropped account's
+			// session is left untouched (no forced new session that would re-fire
+			// the drop log every subsequent request).
+			expect(strategy.select([onlyAcct], meta)).toEqual([]);
+			expect(onlyAcct.session_start).toBe(started);
+		});
+
+		it("does not take the 7d-drop path for an account that is also rate-limited", () => {
+			const strategy = makeStrategy();
+			// Active account is rate-limited AND 7d-exhausted: the rate-limit path
+			// owns it (no forced 7d-drop), and traffic still falls over to 'fresh'.
+			const limited = createAccount("a", "limited", {
+				session_start: Date.now() - 1000,
+				rate_limited_until: Date.now() + 60_000,
+				ratelimit_7d_utilization: 1,
+				ratelimit_7d_reset: future,
+			});
+			const fresh = createAccount("b", "fresh", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			expect(strategy.select([limited, fresh], meta)[0].name).toBe("fresh");
+		});
 	});
 
 	describe("extra-usage seat balanced until full", () => {
