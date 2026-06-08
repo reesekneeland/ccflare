@@ -1,4 +1,5 @@
 import type { AccountResponse, SelectionStatus } from "@ccflare/api";
+import { formatRemaining } from "@ccflare/ui";
 import { useNow } from "../../lib/relativeTime";
 import { Badge } from "../ui/badge";
 import {
@@ -44,16 +45,15 @@ function pct(u: number | null): string {
 	return u == null ? "—" : `${Math.round(u * 100)}%`;
 }
 
-/** Compact "in 3h 12m" / "in 45m" / "now" for a future ISO timestamp. */
-function formatIn(iso: string | null, now: number): string {
-	if (!iso) return "unknown";
-	const ms = new Date(iso).getTime() - now;
-	if (ms <= 0) return "now";
-	const mins = Math.round(ms / 60000);
-	if (mins < 60) return `in ${mins}m`;
-	const hours = Math.floor(mins / 60);
-	const rem = mins % 60;
-	return rem ? `in ${hours}h ${rem}m` : `in ${hours}h`;
+/**
+ * "in 3h 12m" / "in 45m" / "soon" for a future ISO timestamp. Delegates the
+ * h/m formatting to the shared `formatRemaining`; only adds null handling and
+ * the "in " prefix (and folds the already-elapsed "now" case into "soon").
+ */
+function freesUp(iso: string | null, now: number): string {
+	if (!iso) return "soon";
+	const remaining = formatRemaining(new Date(iso).getTime(), now);
+	return remaining === "now" ? "soon" : `in ${remaining}`;
 }
 
 function reason(
@@ -65,18 +65,54 @@ function reason(
 		case "active":
 			return `Serving now · ${account.sessionInfo.requestCount} reqs this session`;
 		case "next":
-			return "Activated next when the current session ends";
+			return "Next in line to be activated";
 		case "candidate":
 			return `5h used ${pct(account.utilization5h)} · in burn-down order`;
 		case "last-resort":
 			return `Extra-usage / overage — used only if all others are exhausted · 5h ${pct(account.utilization5h)}`;
 		case "blocked-7d":
-			return `7-day quota exhausted (${pct(account.utilization7d)}) · frees up ${formatIn(account.reset7d, now)}`;
+			return `7-day quota exhausted (${pct(account.utilization7d)}) · frees up ${freesUp(account.reset7d, now)}`;
 		case "rate-limited":
-			return `Rate-limited · clears ${formatIn(account.rateLimitStatus.until, now)}`;
+			return `Rate-limited · clears ${freesUp(account.rateLimitStatus.until, now)}`;
 		case "paused":
 			return "Paused by operator";
 	}
+}
+
+function OrderRow({
+	account,
+	showRank,
+	now,
+}: {
+	account: AccountResponse;
+	showRank: boolean;
+	now: number;
+}) {
+	const sel = account.selection;
+	if (!sel) return null;
+	return (
+		<div className="flex items-start justify-between gap-3 py-2">
+			<div className="flex items-start gap-3">
+				{showRank && (
+					<span className="mt-0.5 w-6 text-right font-mono text-sm text-muted-foreground">
+						{sel.rank}
+					</span>
+				)}
+				<div>
+					<p className="font-medium leading-tight">{account.name}</p>
+					<p className="text-xs text-muted-foreground">
+						{reason(account, sel.status, now)}
+					</p>
+				</div>
+			</div>
+			<Badge
+				variant={badgeVariant(sel.status)}
+				className={badgeClass(sel.status)}
+			>
+				{STATUS_LABEL[sel.status]}
+			</Badge>
+		</div>
+	);
 }
 
 interface SwitchingOrderProps {
@@ -111,37 +147,6 @@ export function SwitchingOrder({ accounts }: SwitchingOrderProps) {
 		.sort((x, y) => (x.selection?.rank ?? 0) - (y.selection?.rank ?? 0));
 	const excluded = withSelection.filter((a) => a.selection?.rank == null);
 
-	const row = (account: AccountResponse, showRank: boolean) => {
-		const sel = account.selection;
-		if (!sel) return null;
-		return (
-			<div
-				key={account.id}
-				className="flex items-start justify-between gap-3 py-2"
-			>
-				<div className="flex items-start gap-3">
-					{showRank && (
-						<span className="mt-0.5 w-6 text-right font-mono text-sm text-muted-foreground">
-							{sel.rank}
-						</span>
-					)}
-					<div>
-						<p className="font-medium leading-tight">{account.name}</p>
-						<p className="text-xs text-muted-foreground">
-							{reason(account, sel.status, now)}
-						</p>
-					</div>
-				</div>
-				<Badge
-					variant={badgeVariant(sel.status)}
-					className={badgeClass(sel.status)}
-				>
-					{STATUS_LABEL[sel.status]}
-				</Badge>
-			</div>
-		);
-	};
-
 	return (
 		<Card>
 			<CardHeader>
@@ -152,7 +157,9 @@ export function SwitchingOrder({ accounts }: SwitchingOrderProps) {
 			</CardHeader>
 			<CardContent className="space-y-1">
 				<div className="divide-y divide-border">
-					{activation.map((a) => row(a, true))}
+					{activation.map((a) => (
+						<OrderRow key={a.id} account={a} showRank now={now} />
+					))}
 				</div>
 				{excluded.length > 0 && (
 					<div className="pt-3">
@@ -160,7 +167,9 @@ export function SwitchingOrder({ accounts }: SwitchingOrderProps) {
 							Unavailable
 						</p>
 						<div className="divide-y divide-border opacity-70">
-							{excluded.map((a) => row(a, false))}
+							{excluded.map((a) => (
+								<OrderRow key={a.id} account={a} showRank={false} now={now} />
+							))}
 						</div>
 					</div>
 				)}
