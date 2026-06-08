@@ -401,6 +401,23 @@ describe("SessionStrategy", () => {
 				"unseen",
 			]);
 		});
+
+		it("drops a flat-rate account from its session when 7d fills mid-session", () => {
+			const strategy = makeStrategy();
+			// 'sticky' holds the active session but its 7d quota just filled →
+			// no longer selectable, so traffic falls over to 'fresh'.
+			const sticky = createAccount("a", "sticky", {
+				session_start: Date.now() - 1000,
+				ratelimit_7d_utilization: 1,
+				ratelimit_7d_reset: future,
+			});
+			const fresh = createAccount("b", "fresh", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+			});
+
+			expect(strategy.select([sticky, fresh], meta)[0].name).toBe("fresh");
+		});
 	});
 
 	describe("extra-usage seat balanced until full", () => {

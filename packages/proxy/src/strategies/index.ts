@@ -35,11 +35,11 @@ export class SessionStrategy implements LoadBalancingStrategy {
 
 	constructor(
 		sessionDurationMs: number = TIME_CONSTANTS.SESSION_DURATION_DEFAULT,
-		lastResortNames?: Iterable<string>,
+		extraUsageSeats?: Iterable<string>,
 	) {
 		this.sessionDurationMs = sessionDurationMs;
 		this.extraUsageSeats = new Set(
-			lastResortNames ??
+			extraUsageSeats ??
 				(process.env[LAST_RESORT_ENV] ?? "")
 					.split(",")
 					.map((name) => name.trim())
@@ -67,9 +67,9 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	 * it is treated as not maxed. A never-seen window (null utilization) is likewise
 	 * not maxed — absence of data is not evidence of exhaustion. A known utilization
 	 * with no reset timestamp is judged on utilization alone (treated as the live
-	 * window), matching `effective5hUtil`; utilization and reset are written together
-	 * from the same poll/header source, so a high-utilization/null-reset state is
-	 * transient and self-corrects on the next poll.
+	 * window), matching `effective5hUtil`; the next poll's utilization refreshes this
+	 * even if the reset stays absent, so a stale-high value does not persist once the
+	 * real window rolls over.
 	 */
 	private isWindowMaxed(
 		util: number | null,
@@ -251,11 +251,18 @@ export class SessionStrategy implements LoadBalancingStrategy {
 				return [activeAccount, ...others];
 			}
 			this.log.info(
-				`Preempting last-resort session on account ${activeAccount.name}: a preferred account is available`,
+				`Preempting overage session on account ${activeAccount.name}: a normally-balanced account is available`,
+			);
+		} else if (activeAccount && this.is7dExhausted(activeAccount, now)) {
+			// The active account's 7-day quota filled mid-session, so it is no
+			// longer selectable and traffic falls over to another account. Logged
+			// (like the preempt path) so this otherwise-silent switch is diagnosable.
+			this.log.info(
+				`Dropping 7d-exhausted session on account ${activeAccount.name}: waiting for the 7-day window to reset`,
 			);
 		}
 
-		// No active session, active account is unselectable, or a last-resort
+		// No active session, active account is unselectable, or an overage
 		// session was preempted. Filter selectable accounts, preferred first.
 		const available = this.prioritize(
 			accounts.filter((a) => this.isSelectable(a, now)),
@@ -269,7 +276,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		if (preempt) {
 			// Force a fresh session even if this account has an unexpired one;
 			// its session_start must become the most recent so stickiness moves
-			// off the last-resort account on subsequent requests.
+			// off the extra-usage seat on subsequent requests.
 			this.log.info(`Starting new session for account ${chosenAccount.name}`);
 			this.startNewSession(chosenAccount, now);
 		} else {
