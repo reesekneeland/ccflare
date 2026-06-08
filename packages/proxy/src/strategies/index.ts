@@ -64,8 +64,12 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	/**
 	 * Reset-aware "this quota window is fully consumed". A window whose reset has
 	 * already passed is stale (the fresh value just hasn't been observed yet), so
-	 * it is treated as not maxed. A never-seen window (null) is likewise not maxed
-	 * — absence of data is not evidence of exhaustion.
+	 * it is treated as not maxed. A never-seen window (null utilization) is likewise
+	 * not maxed — absence of data is not evidence of exhaustion. A known utilization
+	 * with no reset timestamp is judged on utilization alone (treated as the live
+	 * window), matching `effective5hUtil`; utilization and reset are written together
+	 * from the same poll/header source, so a high-utilization/null-reset state is
+	 * transient and self-corrects on the next poll.
 	 */
 	private isWindowMaxed(
 		util: number | null,

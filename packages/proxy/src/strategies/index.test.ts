@@ -86,8 +86,8 @@ describe("SessionStrategy", () => {
 		expect(selected[0].name).toBe("first");
 	});
 
-	// An extra-usage seat acts as last resort only once its own 5h window is full
-	// (see "change 2" below); these tests pin reese at the cap so it plays that role.
+	// An extra-usage seat acts as last resort only once its own 5h window is full;
+	// these tests pin reese at the cap so it plays that role.
 	const MAXED_5H = {
 		ratelimit_5h_utilization: 1,
 		ratelimit_5h_reset: Date.now() + 60 * 60 * 1000,
@@ -343,7 +343,7 @@ describe("SessionStrategy", () => {
 		});
 	});
 
-	describe("7-day exhaustion block (change 1)", () => {
+	describe("7-day exhaustion block", () => {
 		const future = Date.now() + 60 * 60 * 1000;
 
 		it("excludes a flat-rate seat whose 7d quota is maxed, even with a fresh 5h window", () => {
@@ -403,7 +403,7 @@ describe("SessionStrategy", () => {
 		});
 	});
 
-	describe("extra-usage seat balanced until full (change 2)", () => {
+	describe("extra-usage seat balanced until full", () => {
 		const future = Date.now() + 60 * 60 * 1000;
 
 		it("balances the extra-usage seat like a normal account below the cap", () => {

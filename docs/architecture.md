@@ -315,12 +315,16 @@ Its job:
 - select accounts, preserving session affinity (a sticky account is burned down
   before the next is opened)
 - avoid paused or rate-limited accounts
+- drop flat-rate accounts whose **7-day quota is exhausted** from selection until that
+  window resets (a fresh 5-hour window does not un-block them)
 - order candidates by **burn-down ranking**: highest 5-hour quota utilization first,
   tie-broken by soonest 7-day reset (utilization comes from response headers plus the
   usage poller below)
-- keep **last-resort accounts** (`CCFLARE_LAST_RESORT_ACCOUNTS`) at the end of the
-  order, and preempt an active last-resort session as soon as a preferred account
-  becomes available
+- treat **extra-usage seats** (`CCFLARE_LAST_RESORT_ACCOUNTS`) as normal balanced
+  accounts while their own 5-hour quota has headroom; once that window fills they flip
+  to last-resort (sorted to the end, and an active session is preempted onto any
+  available normal account so overage stops). These seats are exempt from the 7-day
+  block — overage lets them keep serving past the weekly cap.
 
 See [`docs/load-balancing.md`](load-balancing.md) for the full selection algorithm.
 
