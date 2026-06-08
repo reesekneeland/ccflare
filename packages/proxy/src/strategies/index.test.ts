@@ -59,8 +59,8 @@ const meta: RequestMeta = {
 	timestamp: Date.now(),
 };
 
-function makeStrategy(lastResort: string[] = []): SessionStrategy {
-	const strategy = new SessionStrategy(SESSION_MS, lastResort);
+function makeStrategy(extraUsageSeats: string[] = []): SessionStrategy {
+	const strategy = new SessionStrategy(SESSION_MS, extraUsageSeats);
 	strategy.initialize(createStore());
 	return strategy;
 }
@@ -95,27 +95,27 @@ describe("SessionStrategy", () => {
 
 	it("orders an exhausted extra-usage seat after preferred ones when starting fresh", () => {
 		const strategy = makeStrategy(["reese"]);
-		const lastResort = createAccount("a", "reese", { ...MAXED_5H });
+		const reese = createAccount("a", "reese", { ...MAXED_5H });
 		const preferred = createAccount("b", "rek");
 
-		const selected = strategy.select([lastResort, preferred], meta);
+		const selected = strategy.select([reese, preferred], meta);
 		expect(selected.map((acc) => acc.name)).toEqual(["rek", "reese"]);
 	});
 
 	it("uses an exhausted extra-usage seat when no preferred account is available", () => {
 		const strategy = makeStrategy(["reese"]);
-		const lastResort = createAccount("a", "reese", { ...MAXED_5H });
+		const reese = createAccount("a", "reese", { ...MAXED_5H });
 		const limited = createAccount("b", "rek", {
 			rate_limited_until: Date.now() + 60_000,
 		});
 
-		const selected = strategy.select([lastResort, limited], meta);
+		const selected = strategy.select([reese, limited], meta);
 		expect(selected.map((acc) => acc.name)).toEqual(["reese"]);
 	});
 
 	it("sticks to an exhausted extra-usage session while preferred accounts are limited", () => {
 		const strategy = makeStrategy(["reese"]);
-		const lastResort = createAccount("a", "reese", {
+		const reese = createAccount("a", "reese", {
 			...MAXED_5H,
 			session_start: Date.now() - 1000,
 		});
@@ -123,7 +123,7 @@ describe("SessionStrategy", () => {
 			rate_limited_until: Date.now() + 60_000,
 		});
 
-		const selected = strategy.select([lastResort, limited], meta);
+		const selected = strategy.select([reese, limited], meta);
 		expect(selected[0].name).toBe("reese");
 	});
 
@@ -132,16 +132,16 @@ describe("SessionStrategy", () => {
 		const strategy = new SessionStrategy(SESSION_MS, ["reese"]);
 		strategy.initialize(store);
 
-		const lastResort = createAccount("a", "reese", {
+		const reese = createAccount("a", "reese", {
 			...MAXED_5H,
 			session_start: Date.now() - 1000,
 		});
 		const preferred = createAccount("b", "rek");
 
-		const selected = strategy.select([lastResort, preferred], meta);
+		const selected = strategy.select([reese, preferred], meta);
 		expect(selected[0].name).toBe("rek");
 		// A fresh session must be started on the preferred account so that
-		// stickiness moves off the last-resort account on subsequent requests.
+		// stickiness moves off the extra-usage seat on subsequent requests.
 		expect(store.resets.map(([id]) => id)).toContain("b");
 		expect(preferred.session_start).not.toBeNull();
 	});
@@ -149,7 +149,7 @@ describe("SessionStrategy", () => {
 	it("preempts even when the preferred account has an older unexpired session", () => {
 		const now = Date.now();
 		const strategy = makeStrategy(["reese"]);
-		const lastResort = createAccount("a", "reese", {
+		const reese = createAccount("a", "reese", {
 			...MAXED_5H,
 			session_start: now - 1000,
 		});
@@ -159,30 +159,30 @@ describe("SessionStrategy", () => {
 			session_start: now - 60_000,
 		});
 
-		const selected = strategy.select([lastResort, preferred], meta);
+		const selected = strategy.select([reese, preferred], meta);
 		expect(selected[0].name).toBe("rek");
 		// Forced session restart: rek's session_start is now the most recent,
 		// so the next select() sticks to rek without needing to preempt again.
-		const next = strategy.select([lastResort, preferred], meta);
+		const next = strategy.select([reese, preferred], meta);
 		expect(next[0].name).toBe("rek");
 	});
 
 	it("never preempts a preferred account's session", () => {
 		const strategy = makeStrategy(["reese"]);
-		const lastResort = createAccount("a", "reese");
+		const reese = createAccount("a", "reese");
 		const preferred = createAccount("b", "rek", {
 			session_start: Date.now() - 1000,
 		});
 
-		const selected = strategy.select([lastResort, preferred], meta);
+		const selected = strategy.select([reese, preferred], meta);
 		expect(selected[0].name).toBe("rek");
 	});
 
 	describe("burn-down ordering", () => {
 		const future = Date.now() + 60 * 60 * 1000;
 
-		it("picks the highest 5h utilization first (no last-resort configured)", () => {
-			const strategy = makeStrategy(); // burn-down must apply with no last-resort
+		it("picks the highest 5h utilization first (no extra-usage seats configured)", () => {
+			const strategy = makeStrategy(); // burn-down must apply with no extra-usage seats configured
 			const low = createAccount("a", "low", {
 				ratelimit_5h_utilization: 0.2,
 				ratelimit_5h_reset: future,
@@ -260,7 +260,7 @@ describe("SessionStrategy", () => {
 				ratelimit_5h_reset: future,
 			});
 
-			// No preferred accounts: the most-burned last-resort seat goes first.
+			// No preferred accounts: the most-burned extra-usage seat goes first.
 			expect(strategy.select([lrLow, lrHigh], meta).map((a) => a.name)).toEqual(
 				["lr-high", "lr-low"],
 			);
@@ -412,11 +412,18 @@ describe("SessionStrategy", () => {
 				ratelimit_7d_reset: future,
 			});
 			const fresh = createAccount("b", "fresh", {
+				// Has an older unexpired session, so without a forced session
+				// advance the exhausted seat would stay most-recent and re-fire.
+				session_start: Date.now() - 60_000,
 				ratelimit_5h_utilization: 0.2,
 				ratelimit_5h_reset: future,
 			});
 
 			expect(strategy.select([sticky, fresh], meta)[0].name).toBe("fresh");
+			// Stickiness must move to 'fresh': the next request continues on it
+			// rather than re-identifying the exhausted seat and dropping again.
+			expect(strategy.select([sticky, fresh], meta)[0].name).toBe("fresh");
+			expect(fresh.session_start).toBeGreaterThan(sticky.session_start ?? 0);
 		});
 	});
 

@@ -28,7 +28,7 @@ ccflare implements a session-based load balancing system to distribute requests 
 **Implementation Details** (`packages/proxy/src/strategies/index.ts`):
 
 `SessionStrategy` is constructed with the session duration and an optional set of
-last-resort account names (`new SessionStrategy(sessionDurationMs, lastResortNames)`;
+extra-usage seat names (`new SessionStrategy(sessionDurationMs, extraUsageSeats)`;
 the names default to the `CCFLARE_LAST_RESORT_ACCOUNTS` env var). `select()` works in
 two stages:
 
