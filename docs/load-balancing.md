@@ -40,20 +40,35 @@ two stages:
    preempted), the available accounts are ordered by `prioritize()` and the first is
    chosen for a fresh session.
 
-**Burn-down ordering** (`prioritize` / `compareBurnDown`): among available **preferred**
-(non-last-resort) accounts, order by:
+**Selectability** (`isSelectable`): an account is eligible for traffic only when it is
+available (not paused / not rate-limited, via `isAccountAvailable`) **and** not blocked by
+an exhausted 7-day quota. A **flat-rate** seat whose 7-day utilization is at/above the cap
+(`MAX_UTIL`, 0.99) is dropped from selection until its 7-day window resets — it can't serve,
+so even a freshly-reset 5-hour window won't bring it back. (Extra-usage seats are exempt;
+see below.) The exclusion is reset-aware: a 7-day value whose reset has passed is stale and
+does not block. This gate governs both continuing a session and (re)selecting one.
+
+**Burn-down ordering** (`prioritize` / `compareBurnDown`): among selectable **normally
+balanced** accounts, order by:
 - **5-hour utilization, highest first** — finish the most-burned seat before opening the
   next. A window whose reset has already passed counts as `0` (stale), and a never-seen
   account (no observed utilization) sorts last.
 - **tie-break: soonest 7-day reset.**
 - **final tie-break: account name**, for deterministic ordering.
 
-**Last-resort accounts** (`CCFLARE_LAST_RESORT_ACCOUNTS`): accounts whose names are listed
-always sort **after** all preferred accounts, so they only serve traffic when every
-preferred seat is unavailable — intended for pay-per-use "extra usage" seats. If a
-last-resort account is holding the active session and any preferred account becomes
-available, the session is **preempted** onto the preferred account so overage isn't billed
-while normal quota exists.
+**Extra-usage seats** (`CCFLARE_LAST_RESORT_ACCOUNTS`): seats with pay-per-use "extra usage"
+enabled. These are **balanced like any other account while their own 5-hour quota has
+headroom** (ranked by the same burn-down comparator), so their included quota is used before
+any overage is billed. Once a seat's 5-hour utilization reaches the cap (`MAX_UTIL`, 0.99)
+its `actsAsLastResort` flips on: it sorts **after** all normally-balanced accounts and only
+serves traffic when nothing else is selectable. If such a seat is holding the active session
+when it crosses the cap and any normally-balanced account is available, the session is
+**preempted** onto that account so overage stops the moment normal quota exists. Extra-usage
+seats are exempt from the 7-day exhaustion block — their overage lets them keep serving past
+the weekly cap as the true last resort. The flip is reset-aware: when the 5-hour window
+resets, the seat returns to normal balancing. (Seat identity is env-based, not derived from
+the `overage_status` field, which is unreliable — the usage endpoint reports it `enabled`
+for every seat.)
 
 **Utilization data** comes from two sources, both writing the per-account 5h/7d columns:
 the `anthropic-ratelimit-unified-{5h,7d}-*` headers parsed off each proxied response, and
@@ -96,8 +111,9 @@ LB_STRATEGY=session
 # Session duration in milliseconds (default: 18000000ms = 5 hours)
 SESSION_DURATION_MS=18000000
 
-# Comma-separated account names served only as a last resort (e.g. pay-per-use
-# "extra usage" seats). Default: none.
+# Comma-separated names of pay-per-use "extra usage" seats. Balanced normally
+# until their own 5h quota fills, then used only as a last resort (overage).
+# Default: none.
 CCFLARE_LAST_RESORT_ACCOUNTS=reese
 
 # Usage poller interval in ms (default: 60000; 0 disables). Refreshes every

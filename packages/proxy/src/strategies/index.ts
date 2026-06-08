@@ -8,25 +8,37 @@ import type {
 } from "@ccflare/types";
 
 /**
- * Comma-separated account names that should only serve traffic when no other
- * account is available (e.g. seats with pay-per-use extra usage enabled).
- * Sessions on these accounts are preempted as soon as a preferred account
- * becomes available again.
+ * Comma-separated account names for seats that have pay-per-use "extra usage"
+ * enabled (e.g. `reese`). These seats are balanced like any other account while
+ * their own 5-hour quota has headroom, but once that window fills — every
+ * further request bills overage — they become last-resort: used only when no
+ * other account is available, and preempted back to a normal seat the moment one
+ * frees up. They are also exempt from the 7-day exhaustion block (overage lets
+ * them keep serving past the weekly cap).
  */
 const LAST_RESORT_ENV = "CCFLARE_LAST_RESORT_ACCOUNTS";
+
+/**
+ * Utilization fraction (0–1) at or above which a quota window is treated as
+ * fully consumed. Set just below 1.0 so we react right at the cap even if the
+ * provider ever reports slightly under 100%, and so the extra-usage seat flips
+ * to last-resort *before* it starts billing overage rather than one request
+ * after.
+ */
+const MAX_UTIL = 0.99;
 
 export class SessionStrategy implements LoadBalancingStrategy {
 	private sessionDurationMs: number;
 	private store: StrategyStore | null = null;
 	private log = new Logger("SessionStrategy");
-	private lastResortNames: Set<string>;
+	private extraUsageSeats: Set<string>;
 
 	constructor(
 		sessionDurationMs: number = TIME_CONSTANTS.SESSION_DURATION_DEFAULT,
 		lastResortNames?: Iterable<string>,
 	) {
 		this.sessionDurationMs = sessionDurationMs;
-		this.lastResortNames = new Set(
+		this.extraUsageSeats = new Set(
 			lastResortNames ??
 				(process.env[LAST_RESORT_ENV] ?? "")
 					.split(",")
@@ -39,8 +51,74 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		this.store = store;
 	}
 
-	private isLastResort(account: Account): boolean {
-		return this.lastResortNames.has(account.name);
+	/**
+	 * Static identity: seats named in `CCFLARE_LAST_RESORT_ACCOUNTS`. These are
+	 * the only accounts permitted to serve on pay-per-use overage. Identity is
+	 * env-based, NOT derived from the `overage_status` header — that field is
+	 * unreliable here (the usage endpoint reports `enabled` for every seat).
+	 */
+	private isExtraUsageSeat(account: Account): boolean {
+		return this.extraUsageSeats.has(account.name);
+	}
+
+	/**
+	 * Reset-aware "this quota window is fully consumed". A window whose reset has
+	 * already passed is stale (the fresh value just hasn't been observed yet), so
+	 * it is treated as not maxed. A never-seen window (null) is likewise not maxed
+	 * — absence of data is not evidence of exhaustion.
+	 */
+	private isWindowMaxed(
+		util: number | null,
+		reset: number | null,
+		now: number,
+	): boolean {
+		if (util == null) return false;
+		if (reset != null && now >= reset) return false;
+		return util >= MAX_UTIL;
+	}
+
+	/**
+	 * A flat-rate seat whose 7-day quota is exhausted cannot serve until the
+	 * window resets, so it drops out of selection entirely. The extra-usage seat
+	 * is exempt — its overage lets it keep serving past the weekly cap.
+	 */
+	private is7dExhausted(account: Account, now: number): boolean {
+		return (
+			!this.isExtraUsageSeat(account) &&
+			this.isWindowMaxed(
+				account.ratelimit_7d_utilization,
+				account.ratelimit_7d_reset,
+				now,
+			)
+		);
+	}
+
+	/**
+	 * Whether an extra-usage seat is currently acting as a last resort: only once
+	 * its own 5-hour window has filled, at which point every request bills overage.
+	 * Below the threshold it is a normal balanced account; a non-extra-usage seat
+	 * never acts as last resort.
+	 */
+	private actsAsLastResort(account: Account, now: number): boolean {
+		return (
+			this.isExtraUsageSeat(account) &&
+			this.isWindowMaxed(
+				account.ratelimit_5h_utilization,
+				account.ratelimit_5h_reset,
+				now,
+			)
+		);
+	}
+
+	/**
+	 * Selectable for traffic: available (not paused / not rate-limited) AND not
+	 * blocked by an exhausted 7-day quota. This is the single eligibility gate
+	 * used for both continuing a session and (re)selecting one.
+	 */
+	private isSelectable(account: Account, now: number): boolean {
+		return (
+			isAccountAvailable(account, now) && !this.is7dExhausted(account, now)
+		);
 	}
 
 	/**
@@ -76,19 +154,17 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	}
 
 	/**
-	 * Order accounts for selection/failover: preferred accounts in burn-down
-	 * order, then last-resort accounts (only reached when nothing else is
-	 * available). The burn-down sort applies whether or not last-resort accounts
-	 * are configured.
+	 * Order accounts for selection/failover: normally-balanced accounts in
+	 * burn-down order, then accounts currently acting as last resort (extra-usage
+	 * seats whose 5h window has filled — reached only when nothing else is
+	 * available). Both buckets use the same burn-down comparator.
 	 */
 	private prioritize(accounts: Account[], now: number): Account[] {
 		const preferred = accounts
-			.filter((a) => !this.isLastResort(a))
+			.filter((a) => !this.actsAsLastResort(a, now))
 			.sort((x, y) => this.compareBurnDown(x, y, now));
-		// Last-resort accounts trail, but order among themselves by the same
-		// burn-down comparator so multi-last-resort setups stay deterministic.
 		const lastResort = accounts
-			.filter((a) => this.isLastResort(a))
+			.filter((a) => this.actsAsLastResort(a, now))
 			.sort((x, y) => this.compareBurnDown(x, y, now));
 		return [...preferred, ...lastResort];
 	}
@@ -140,19 +216,20 @@ export class SessionStrategy implements LoadBalancingStrategy {
 			}
 		}
 
-		// If we have an active account and it's available, use it exclusively —
-		// unless it's a last-resort account and a preferred account has become
+		// If we have an active account and it's selectable, use it exclusively —
+		// unless it's currently acting as a last resort (an extra-usage seat whose
+		// 5h window has filled) and a normally-balanced account has become
 		// available, in which case the session is preempted off it so we stop
-		// burning the last-resort account's quota.
+		// burning overage.
 		let preempt = false;
-		if (activeAccount && isAccountAvailable(activeAccount, now)) {
+		if (activeAccount && this.isSelectable(activeAccount, now)) {
 			preempt =
-				this.isLastResort(activeAccount) &&
+				this.actsAsLastResort(activeAccount, now) &&
 				accounts.some(
 					(a) =>
 						a.id !== activeAccount.id &&
-						!this.isLastResort(a) &&
-						isAccountAvailable(a, now),
+						!this.actsAsLastResort(a, now) &&
+						this.isSelectable(a, now),
 				);
 			if (!preempt) {
 				// Reset session if expired (shouldn't happen but just in case)
@@ -163,7 +240,7 @@ export class SessionStrategy implements LoadBalancingStrategy {
 				// Return active account first, then others as fallback
 				const others = this.prioritize(
 					accounts.filter(
-						(a) => a.id !== activeAccount.id && isAccountAvailable(a, now),
+						(a) => a.id !== activeAccount.id && this.isSelectable(a, now),
 					),
 					now,
 				);
@@ -174,10 +251,10 @@ export class SessionStrategy implements LoadBalancingStrategy {
 			);
 		}
 
-		// No active session, active account is rate limited, or a last-resort
-		// session was preempted. Filter available accounts, preferred first.
+		// No active session, active account is unselectable, or a last-resort
+		// session was preempted. Filter selectable accounts, preferred first.
 		const available = this.prioritize(
-			accounts.filter((a) => isAccountAvailable(a, now)),
+			accounts.filter((a) => this.isSelectable(a, now)),
 			now,
 		);
 
