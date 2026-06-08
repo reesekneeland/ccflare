@@ -380,7 +380,10 @@ export class SessionStrategy implements LoadBalancingStrategy {
 		if (account.paused) return "paused";
 		if (!isAccountAvailable(account, now)) return "rate-limited";
 		if (this.is7dExhausted(account, now)) return "blocked-7d";
-		// Defensive: a non-selectable account always matches one of the above.
-		return "candidate";
+		// Unreachable: this is only called for non-selectable accounts, which
+		// always match one of the above. Fall back to an *excluded* status (never
+		// a selectable one like "candidate") so a future isSelectable change that
+		// adds an exclusion reason can't surface a rank-null/"candidate" contradiction.
+		return "rate-limited";
 	}
 }
