@@ -50,10 +50,17 @@ does not block. This gate governs both continuing a session and (re)selecting on
 
 **Burn-down ordering** (`prioritize` / `compareBurnDown`): among selectable **normally
 balanced** accounts, order by:
+- **active 7-day window first** — accounts already inside a 7-day window (a known reset
+  still in the future) are burned before fully-fresh accounts. A seat whose 7-day window
+  has rolled over (or was never observed) is fresh: serving it starts a brand-new 7-day
+  clock, so it sorts to the back and is only opened when every in-window seat is busy or
+  unavailable. This mirrors the 5-hour behavior — a seat with a running window is always
+  preferred over one that would start a new window.
 - **5-hour utilization, highest first** — finish the most-burned seat before opening the
   next. A window whose reset has already passed counts as `0` (stale), and a never-seen
   account (no observed utilization) sorts last.
-- **tie-break: soonest 7-day reset.**
+- **tie-break: soonest 7-day reset** — within a group, the window ending soonest is
+  burned first; a null reset (never observed) sorts last.
 - **final tie-break: account name**, for deterministic ordering.
 
 **Extra-usage seats** (`CCFLARE_LAST_RESORT_ACCOUNTS`): seats with pay-per-use "extra usage"

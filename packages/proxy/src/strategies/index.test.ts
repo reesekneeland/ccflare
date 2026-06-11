@@ -296,6 +296,92 @@ describe("SessionStrategy", () => {
 			expect(selected.map((a) => a.name)).toEqual(["rek", "reese"]);
 		});
 
+		it("prioritizes an account inside an active 7d window over a fully-fresh one", () => {
+			const strategy = makeStrategy();
+			// 'fresh' has more 5h burn, but its 7d window has rolled over — serving
+			// it would start a brand-new 7-day clock, so it goes to the back.
+			const fresh = createAccount("a", "fresh", {
+				ratelimit_5h_utilization: 0.5,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() - 1000,
+			});
+			const inWindow = createAccount("b", "in-window", {
+				ratelimit_5h_utilization: 0,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 3 * 86_400_000,
+			});
+
+			const selected = strategy.select([fresh, inWindow], meta);
+			expect(selected.map((a) => a.name)).toEqual(["in-window", "fresh"]);
+		});
+
+		it("sorts a never-seen 7d window (null reset) with the fully-fresh group", () => {
+			const strategy = makeStrategy();
+			const inWindow = createAccount("a", "in-window", {
+				ratelimit_7d_reset: Date.now() + 3 * 86_400_000,
+			});
+			const expired = createAccount("b", "expired", {
+				ratelimit_5h_utilization: 0,
+				ratelimit_5h_reset: Date.now() - 1000,
+				ratelimit_7d_reset: Date.now() - 1000,
+			});
+			const unseen = createAccount("c", "unseen");
+
+			// in-window leads; among the windowless, rolled-over (effective 5h util
+			// 0) still beats never-seen (-1).
+			const selected = strategy.select([unseen, expired, inWindow], meta);
+			expect(selected.map((a) => a.name)).toEqual([
+				"in-window",
+				"expired",
+				"unseen",
+			]);
+		});
+
+		it("orders accounts with active 7d windows by 5h util, then soonest 7d reset", () => {
+			const strategy = makeStrategy();
+			const hot = createAccount("a", "hot", {
+				ratelimit_5h_utilization: 0.7,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 6 * 86_400_000,
+			});
+			const endsSoon = createAccount("b", "ends-soon", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 1 * 86_400_000,
+			});
+			const endsLater = createAccount("c", "ends-later", {
+				ratelimit_5h_utilization: 0.2,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 4 * 86_400_000,
+			});
+			const fresh = createAccount("d", "fresh", {
+				ratelimit_7d_reset: Date.now() - 1000,
+			});
+
+			const selected = strategy.select([fresh, endsLater, endsSoon, hot], meta);
+			expect(selected.map((a) => a.name)).toEqual([
+				"hot",
+				"ends-soon",
+				"ends-later",
+				"fresh",
+			]);
+		});
+
+		it("keeps an exhausted extra-usage seat trailing even when only it has an active 7d window", () => {
+			const strategy = makeStrategy(["reese"]);
+			const reese = createAccount("a", "reese", {
+				ratelimit_5h_utilization: 1,
+				ratelimit_5h_reset: future,
+				ratelimit_7d_reset: Date.now() + 3 * 86_400_000,
+			});
+			const fresh = createAccount("b", "rek", {
+				ratelimit_7d_reset: Date.now() - 1000,
+			});
+
+			const selected = strategy.select([reese, fresh], meta);
+			expect(selected.map((a) => a.name)).toEqual(["rek", "reese"]);
+		});
+
 		it("is deterministic across calls", () => {
 			const strategy = makeStrategy();
 			const a = createAccount("a", "aaa", {
