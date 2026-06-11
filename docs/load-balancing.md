@@ -59,8 +59,8 @@ balanced** accounts, order by:
 - **5-hour utilization, highest first** — finish the most-burned seat before opening the
   next. A window whose reset has already passed counts as `0` (stale), and a never-seen
   account (no observed utilization) sorts last.
-- **tie-break: soonest 7-day reset** — among in-window seats, the window ending soonest
-  is burned first.
+- **tie-break: soonest 7-day reset** — within a group, the window ending soonest is
+  burned first; a null reset (never observed) sorts last.
 - **final tie-break: account name**, for deterministic ordering.
 
 **Extra-usage seats** (`CCFLARE_LAST_RESORT_ACCOUNTS`): seats with pay-per-use "extra usage"
