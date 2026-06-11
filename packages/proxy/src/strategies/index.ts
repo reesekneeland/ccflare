@@ -149,10 +149,27 @@ export class SessionStrategy implements LoadBalancingStrategy {
 	}
 
 	/**
-	 * Burn-down order: most-utilized 5h seat first (finish one before opening the
-	 * next), tie-broken by soonest 7-day reset, then name for determinism.
+	 * Whether the account is currently inside a 7-day quota window (a known
+	 * reset timestamp still in the future). An expired reset means the window
+	 * has rolled over — the account is fully fresh, and serving it would start
+	 * a brand-new 7-day clock. A null reset means no window has been observed.
+	 */
+	private has7dWindowActive(account: Account, now: number): boolean {
+		const reset = account.ratelimit_7d_reset;
+		return reset != null && now < reset;
+	}
+
+	/**
+	 * Burn-down order: accounts already inside a 7-day window come first —
+	 * their weekly clock is running anyway, so burn them before opening a
+	 * fully-fresh account (which would start a new 7-day window). Within a
+	 * group, most-utilized 5h seat first (finish one before opening the next),
+	 * tie-broken by soonest 7-day reset, then name for determinism.
 	 */
 	private compareBurnDown(a: Account, b: Account, now: number): number {
+		const wa = this.has7dWindowActive(a, now);
+		const wb = this.has7dWindowActive(b, now);
+		if (wa !== wb) return wa ? -1 : 1;
 		const ua = this.effective5hUtil(a, now);
 		const ub = this.effective5hUtil(b, now);
 		if (ua !== ub) return ub - ua;
